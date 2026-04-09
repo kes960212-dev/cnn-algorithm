@@ -110,7 +110,7 @@ function GrayCanvas({data,pixelSize,label,borderColor,colorFn}){
 function ConvolutionTab(){
   const [inputSize,setInputSize]=useState(6);const [kernelSize,setKernelSize]=useState(3);const [stride,setStride]=useState(1);const [padding,setPadding]=useState(0);const [seed,setSeed]=useState(33);const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);
   const stepRef=useRef(0);const timerRef=useRef(null);
-  const paddedSize=inputSize+2*padding;const outSize=Math.max(1,Math.floor((paddedSize-kernelSize)/stride)+1);const totalSteps=outSize*outSize;const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
+  const paddedSize=inputSize+2*padding;const outSize=Math.max(0,Math.floor((paddedSize-kernelSize)/stride)+1);const totalSteps=Math.max(1,outSize*outSize);const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;const totalMuls=outSize*outSize*kernelSize*kernelSize;const totalAdds=outSize*outSize*(kernelSize*kernelSize-1);
   const inputMat=useMemo(()=>genMatrixPos(inputSize,inputSize,seed),[inputSize,seed]);
   const kernelMat=useMemo(()=>{const p=[[[-1,-1,-1],[0,0,0],[1,1,1]],[[-1,0,1],[-1,0,1],[-1,0,1]],[[0,-1,0],[-1,5,-1],[0,-1,0]]];if(kernelSize===2)return[[1,1],[1,1]];if(kernelSize===3)return p[seed%3];return Array.from({length:kernelSize},(_,i)=>Array.from({length:kernelSize},(_,j)=>i===Math.floor(kernelSize/2)&&j===Math.floor(kernelSize/2)?kernelSize*kernelSize-1:-1))},[kernelSize,seed]);
   const paddedMat=useMemo(()=>{const m=Array.from({length:paddedSize},()=>Array(paddedSize).fill(0));for(let i=0;i<inputSize;i++)for(let j=0;j<inputSize;j++)m[i+padding][j+padding]=inputMat[i][j];return m},[inputMat,padding,paddedSize,inputSize]);
@@ -135,10 +135,16 @@ function ConvolutionTab(){
       <button onClick={()=>setSeed(s=>s+1)} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>⟳ 새 커널</button>
     </div></div>
     <div className="card" style={{marginBottom:14}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:8}}>
-      <InfoBox icon="📐" title="출력 크기"><span style={{color:C.accent3}}>⌊({inputSize}+2×{padding}-{kernelSize})/{stride}⌋+1 = </span><span style={{color:C.accent,fontWeight:800,fontSize:16}}>{outSize}</span></InfoBox>
-      <InfoBox icon="⚙️" title="연산량">곱셈 {outSize*outSize*kernelSize*kernelSize}회</InfoBox>
+      <InfoBox icon="📐" title="출력 크기"><span style={{color:C.accent3}}>⌊({inputSize}+2×{padding}-{kernelSize})/{stride}⌋+1 = </span><span style={{color:outSize>0?C.accent:C.accent2,fontWeight:800,fontSize:16}}>{outSize>0?outSize:'불가능!'}</span>{outSize===0&&<span style={{color:C.accent2,fontSize:10}}><br/>커널({kernelSize})이 입력({paddedSize})보다 큽니다</span>}</InfoBox>
+      <InfoBox icon="⚙️" title="연산량">
+          {outSize>0?<span>
+            <span style={{color:C.accent3}}>곱셈:</span> {outSize}×{outSize}×{kernelSize}×{kernelSize} = <span style={{color:C.accent,fontWeight:800}}>{totalMuls}회</span><br/>
+            <span style={{color:C.accent3}}>덧셈:</span> {outSize}×{outSize}×({kernelSize}×{kernelSize}-1) = <span style={{color:C.accent,fontWeight:800}}>{totalAdds}회</span><br/>
+            <span style={{color:C.muted}}>총 {totalMuls+totalAdds}회 연산</span>
+          </span>:<span style={{color:C.accent2}}>커널이 입력보다 큽니다</span>}
+        </InfoBox>
     </div></div>
-    <div className="card" style={{marginBottom:14}}>
+    {outSize>0?<div className="card" style={{marginBottom:14}}>
       <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
         <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>◀</button>
         <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸ 정지':'▶ 재생'}</button>
@@ -172,6 +178,7 @@ function ConvolutionTab(){
       </div>
     </div>
     <div className="card" style={{fontFamily:mono,fontSize:11,lineHeight:1.8}}><span style={{color:C.accent3,fontWeight:800}}>📝</span> 위치 ({kSR},{kSC}) → 곱합 = <span style={{color:C.accent,fontWeight:800}}>{currentSum}</span> → 출력({curR},{curC})</div>
+    </div>:<div className="card" style={{marginBottom:14,textAlign:'center',padding:30}}><div style={{fontSize:40,marginBottom:10}}>⚠️</div><div style={{fontFamily:mono,fontSize:13,color:C.accent2}}>커널 크기({kernelSize})가 입력 크기({paddedSize})보다 커서 합성곱을 수행할 수 없습니다.</div><div style={{fontFamily:mono,fontSize:11,color:C.muted,marginTop:8}}>패딩을 늘리거나, 입력 크기를 키우거나, 커널 크기를 줄여주세요.</div></div>}
   </div>
 }
 
