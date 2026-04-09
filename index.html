@@ -27,106 +27,71 @@ const {useState,useMemo,useEffect,useRef}=React;
 const C={bg:'#060b18',card:'#0d1425',border:'#1a2444',accent:'#00e5c7',accent2:'#ff5577',accent3:'#ffd166',accent4:'#a78bfa',text:'#dde4f0',muted:'#5a6d8e',dim:'#2a3a5e',kernelBorder:'#00e5c7',relu:'#22c55e',reluNeg:'#ef4444'};
 const mono="'JetBrains Mono',monospace",outfit="'Outfit',sans-serif";
 
-/* ─── Utils ─── */
 function seededRand(seed){let s=seed;return()=>{s=(s*16807+7)%2147483647;return s}}
 function genMatrixPos(r,c,seed){const rng=seededRand(seed);return Array.from({length:r},()=>Array.from({length:c},()=>rng()%256))}
 function genMatrixSigned(r,c,seed){const rng=seededRand(seed);return Array.from({length:r},()=>Array.from({length:c},()=>(rng()%511)-255))}
-
 function generateImage(size,pattern){
   const img=Array.from({length:size},()=>Array.from({length:size},()=>[30,30,50]));
   const cx=size/2,cy=size/2,r=size*.38;
   if(pattern==='smiley'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const dx=x-cx+.5,dy=y-cy+.5,d=Math.sqrt(dx*dx+dy*dy);if(d<r)img[y][x]=[255,210,80];if(d<r&&d>r*.85)img[y][x]=[180,140,40];const eR=Math.max(1,size*.08),eLx=cx-size*.15,eRx=cx+size*.15,eY=cy-size*.1;if(Math.sqrt((x-eLx)**2+(y-eY)**2)<eR)img[y][x]=[40,30,20];if(Math.sqrt((x-eRx)**2+(y-eY)**2)<eR)img[y][x]=[40,30,20];const mD=Math.sqrt(dx*dx+(dy+size*.05)**2);if(mD<r*.55&&mD>r*.4&&dy>size*.05)img[y][x]=[140,80,30]}}
   else if(pattern==='heart'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=(x-cx+.5)/(size*.35),ny=(y-cy+.5)/(size*.35)-.2;if((nx*nx+ny*ny-1)**3-nx*nx*ny*ny*ny<0){const g=1-Math.sqrt(nx*nx+ny*ny)*.4;img[y][x]=[Math.round(220*g+35),Math.round(40*g+15),Math.round(60*g+30)]}}}
   else if(pattern==='star'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=(x-cx+.5)/r,ny=(y-cy+.5)/r,a=Math.atan2(ny,nx),d=Math.sqrt(nx*nx+ny*ny),sR=.5+.5*Math.cos(5*a);if(d<sR){const g=1-d/sR;img[y][x]=[Math.round(80+g*175),Math.round(180+g*75),Math.round(50+g*200)]}}}
-  else if(pattern==='cross'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=Math.abs(x-cx+.5),ny=Math.abs(y-cy+.5);if(nx<size*.12||ny<size*.12)img[y][x]=[60,140,255];else img[y][x]=[20,30,60]}}
+  else if(pattern==='cross'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=Math.abs(x-cx+.5),ny=Math.abs(y-cy+.5);if(nx<size*.12||ny<size*.12)img[y][x]=[60,140,255]}}
   else{for(let y=0;y<size;y++)for(let x=0;x<size;x++){const tx=x/size,ty=y/size;img[y][x]=[Math.round(tx*200+30),Math.round(ty*150+50),Math.round((1-tx)*200+55)]}}
   return img;
 }
-
 function imgToGray(img){return img.map(r=>r.map(p=>Math.round(.299*p[0]+.587*p[1]+.114*p[2])))}
-
-function convGray(gray,kernel){
-  const kS=kernel.length,h=gray.length,w=gray[0].length,oh=h-kS+1,ow=w-kS+1,out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let s=0;for(let ki=0;ki<kS;ki++)for(let kj=0;kj<kS;kj++)s+=gray[i+ki][j+kj]*kernel[ki][kj];row.push(s)}out.push(row)}return out;
-}
-
+function convGray(gray,kernel){const kS=kernel.length,h=gray.length,w=gray[0].length,oh=h-kS+1,ow=w-kS+1,out=[];for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let s=0;for(let ki=0;ki<kS;ki++)for(let kj=0;kj<kS;kj++)s+=gray[i+ki][j+kj]*kernel[ki][kj];row.push(s)}out.push(row)}return out}
 function reluMap(m){return m.map(r=>r.map(v=>Math.max(0,v)))}
+function poolMap(m,ks,mode){const h=m.length,w=m[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){const vals=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++)vals.push(m[i*ks+ki][j*ks+kj]);row.push(mode==='max'?Math.max(...vals):vals.reduce((a,b)=>a+b)/vals.length)}out.push(row)}return out}
+function poolImage(img,ks,mode){const h=img.length,w=img[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let rs=[],gs=[],bs=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++){const p=img[i*ks+ki][j*ks+kj];rs.push(p[0]);gs.push(p[1]);bs.push(p[2])}if(mode==='max')row.push([Math.max(...rs),Math.max(...gs),Math.max(...bs)]);else row.push([Math.round(rs.reduce((a,b)=>a+b)/rs.length),Math.round(gs.reduce((a,b)=>a+b)/gs.length),Math.round(bs.reduce((a,b)=>a+b)/bs.length)])}out.push(row)}return out}
 
-function poolMap(m,ks,mode){
-  const h=m.length,w=m[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){const vals=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++)vals.push(m[i*ks+ki][j*ks+kj]);
-  row.push(mode==='max'?Math.max(...vals):vals.reduce((a,b)=>a+b)/vals.length)}out.push(row)}return out;
-}
-
-function poolImage(img,ks,mode){
-  const h=img.length,w=img[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let rs=[],gs=[],bs=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++){const p=img[i*ks+ki][j*ks+kj];rs.push(p[0]);gs.push(p[1]);bs.push(p[2])}
-  if(mode==='max')row.push([Math.max(...rs),Math.max(...gs),Math.max(...bs)]);
-  else row.push([Math.round(rs.reduce((a,b)=>a+b)/rs.length),Math.round(gs.reduce((a,b)=>a+b)/gs.length),Math.round(bs.reduce((a,b)=>a+b)/bs.length)])}out.push(row)}return out;
-}
-
-function mapToPixels(m,colorFn){
-  const mx=Math.max(...m.flat().map(Math.abs),1);
-  return m.map(r=>r.map(v=>colorFn?colorFn(v,mx):[Math.round(((v/mx)+1)/2*255),Math.round(((v/mx)+1)/2*255),Math.round(((v/mx)+1)/2*255)]));
-}
-
-/* ─── Shared Components ─── */
-function Slider({label,value,onChange,min,max,desc}){
-  return <div style={{flex:1,minWidth:140}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}><span style={{fontSize:11,color:C.muted,fontFamily:mono}}>{label}</span><span style={{fontSize:13,color:C.accent,fontWeight:700,fontFamily:mono}}>{value}</span></div><input type="range" min={min} max={max} value={value} onChange={e=>onChange(+e.target.value)}/>{desc&&<div style={{fontSize:10,color:C.dim,marginTop:2,fontFamily:mono}}>{desc}</div>}</div>
-}
+/* Shared Components */
+function Slider({label,value,onChange,min,max,desc}){return <div style={{flex:1,minWidth:140}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}><span style={{fontSize:11,color:C.muted,fontFamily:mono}}>{label}</span><span style={{fontSize:13,color:C.accent,fontWeight:700,fontFamily:mono}}>{value}</span></div><input type="range" min={min} max={max} value={value} onChange={e=>onChange(+e.target.value)}/>{desc&&<div style={{fontSize:10,color:C.dim,marginTop:2,fontFamily:mono}}>{desc}</div>}</div>}
 function InfoBox({icon,title,children}){return <div className="info-box"><div style={{color:C.muted,marginBottom:4,fontSize:11,fontFamily:mono}}>{icon} {title}</div><div style={{fontSize:12,fontFamily:mono,lineHeight:1.6}}>{children}</div></div>}
 function SectionTitle({icon,title,sub}){return <div style={{marginBottom:14}}><h2 style={{fontFamily:outfit,fontWeight:800,fontSize:20,color:C.text}}>{icon} {title}</h2><p style={{color:C.muted,fontSize:12,marginTop:4,fontFamily:mono}}>{sub}</p></div>}
 function Tip({color,children}){return <div style={{background:`${color||C.accent4}15`,borderRadius:8,padding:12,border:`1px solid ${color||C.accent4}33`,fontFamily:mono,fontSize:12,lineHeight:1.8,marginBottom:14,color:C.text}}>{children}</div>}
-function PixelCanvas({img,pixelSize,label,borderColor,style:extraStyle}){
-  const h=img.length,w=img[0].length;
-  return <div style={{textAlign:'center',...(extraStyle||{})}}>
-    {label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}
-    <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:`0 4px 20px rgba(0,0,0,.4)`}}>
-      {img.flatMap((row,ri)=>row.map((px,ci)=><div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${px[0]},${px[1]},${px[2]})`}}/>))}
-    </div>
-    <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div>
-  </div>
-}
-function GrayCanvas({data,pixelSize,label,borderColor,colorFn}){
-  const mx=Math.max(...data.flat().map(Math.abs),1);
-  const h=data.length,w=data[0].length;
-  return <div style={{textAlign:'center'}}>
-    {label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}
-    <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:`0 2px 12px rgba(0,0,0,.3)`}}>
-      {data.flatMap((row,ri)=>row.map((v,ci)=>{
-        let r,g,b;
-        if(colorFn){[r,g,b]=colorFn(v,mx)}
-        else{const n=Math.round(((v/mx)+1)/2*255);r=g=b=n}
-        return <div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${r},${g},${b})`}}/>
-      }))}
-    </div>
-    <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div>
-  </div>
-}
+function PixelCanvas({img,pixelSize,label,borderColor}){const h=img.length,w=img[0].length;return <div style={{textAlign:'center'}}>{label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}<div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:'0 4px 20px rgba(0,0,0,.4)'}}>{img.flatMap((row,ri)=>row.map((px,ci)=><div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${px[0]},${px[1]},${px[2]})`}}/>))}</div><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div></div>}
+function GrayCanvas({data,pixelSize,label,borderColor,colorFn}){const mx=Math.max(...data.flat().map(Math.abs),1);const h=data.length,w=data[0].length;return <div style={{textAlign:'center'}}>{label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}<div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:'0 2px 12px rgba(0,0,0,.3)'}}>{data.flatMap((row,ri)=>row.map((v,ci)=>{let r,g,b;if(colorFn){[r,g,b]=colorFn(v,mx)}else{const n=Math.round(((v/mx)+1)/2*255);r=g=b=n}return <div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${r},${g},${b})`}}/>}))}</div><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div></div>}
 
-/* ══════════════════════════════════════════════
-   TAB 1: CONVOLUTION
-   ══════════════════════════════════════════════ */
+/* ═══ TAB 1: CONVOLUTION ═══ */
 function ConvolutionTab(){
-  const [inputSize,setInputSize]=useState(6);const [kernelSize,setKernelSize]=useState(3);const [stride,setStride]=useState(1);const [padding,setPadding]=useState(0);const [seed,setSeed]=useState(33);const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);
+  const [inputSize,setInputSize]=useState(6);
+  const [kernelSize,setKernelSize]=useState(3);
+  const [stride,setStride]=useState(1);
+  const [padding,setPadding]=useState(0);
+  const [seed,setSeed]=useState(33);
+  const [step,setStep]=useState(0);
+  const [playing,setPlaying]=useState(false);
   const stepRef=useRef(0);const timerRef=useRef(null);
-  const paddedSize=inputSize+2*padding;const outSize=Math.max(1,Math.floor((paddedSize-kernelSize)/stride)+1);const totalSteps=outSize*outSize;const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
+
+  const paddedSize=inputSize+2*padding;
+  const outSize=Math.max(0,Math.floor((paddedSize-kernelSize)/stride)+1);
+  const totalSteps=Math.max(1,outSize*outSize);
+  const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
+  const totalMuls=outSize*outSize*kernelSize*kernelSize;
+  const totalAdds=outSize*outSize*(kernelSize*kernelSize-1);
+
   const inputMat=useMemo(()=>genMatrixPos(inputSize,inputSize,seed),[inputSize,seed]);
   const kernelMat=useMemo(()=>{const p=[[[-1,-1,-1],[0,0,0],[1,1,1]],[[-1,0,1],[-1,0,1],[-1,0,1]],[[0,-1,0],[-1,5,-1],[0,-1,0]]];if(kernelSize===2)return[[1,1],[1,1]];if(kernelSize===3)return p[seed%3];return Array.from({length:kernelSize},(_,i)=>Array.from({length:kernelSize},(_,j)=>i===Math.floor(kernelSize/2)&&j===Math.floor(kernelSize/2)?kernelSize*kernelSize-1:-1))},[kernelSize,seed]);
   const paddedMat=useMemo(()=>{const m=Array.from({length:paddedSize},()=>Array(paddedSize).fill(0));for(let i=0;i<inputSize;i++)for(let j=0;j<inputSize;j++)m[i+padding][j+padding]=inputMat[i][j];return m},[inputMat,padding,paddedSize,inputSize]);
-  const convResult=useMemo(()=>{const out=[];for(let i=0;i<outSize;i++){const row=[];for(let j=0;j<outSize;j++){let s=0;for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++)s+=paddedMat[i*stride+ki][j*stride+kj]*kernelMat[ki][kj];row.push(s)}out.push(row)}return out},[paddedMat,kernelMat,outSize,kernelSize,stride]);
+  const convResult=useMemo(()=>{if(outSize<=0)return[[0]];const out=[];for(let i=0;i<outSize;i++){const row=[];for(let j=0;j<outSize;j++){let s=0;for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++)s+=paddedMat[i*stride+ki][j*stride+kj]*kernelMat[ki][kj];row.push(s)}out.push(row)}return out},[paddedMat,kernelMat,outSize,kernelSize,stride]);
+
   const syncStep=s=>{setStep(s);stepRef.current=s};
   function stopTimer(){if(timerRef.current!==null){clearInterval(timerRef.current);timerRef.current=null}}
   function startTimer(){stopTimer();timerRef.current=setInterval(()=>{if(stepRef.current>=totalStepsRef.current-1){stopTimer();setPlaying(false);return}const n=stepRef.current+1;stepRef.current=n;setStep(n)},500)}
   function handlePlay(){if(playing){stopTimer();setPlaying(false)}else{if(stepRef.current>=totalSteps-1)syncStep(0);setPlaying(true);startTimer()}}
-  useEffect(()=>{syncStep(0);stopTimer();setPlaying(false)},[inputSize,kernelSize,stride,padding,seed]);useEffect(()=>()=>stopTimer(),[]);
-  const curR=Math.floor(step/outSize),curC=step%outSize,kSR=curR*stride,kSC=curC*stride;
-  const products=[];let currentSum=0;for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++){const v=paddedMat[kSR+ki][kSC+kj],w=kernelMat[ki][kj];products.push({v,w,p:v*w});currentSum+=v*w}
+  useEffect(()=>{syncStep(0);stopTimer();setPlaying(false)},[inputSize,kernelSize,stride,padding,seed]);
+  useEffect(()=>()=>stopTimer(),[]);
+
+  const curR=outSize>0?Math.floor(step/outSize):0,curC=outSize>0?step%outSize:0,kSR=curR*stride,kSC=curC*stride;
+  const products=[];let currentSum=0;
+  if(outSize>0){for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++){const v=paddedMat[kSR+ki]?.[kSC+kj]||0,w=kernelMat[ki]?.[kj]||0;products.push({v,w,p:v*w});currentSum+=v*w}}
   const cellSz=paddedSize>10?24:paddedSize>7?30:36,outCellSz=outSize>6?28:38;
 
   return <div>
     <SectionTitle icon="🔄" title="합성곱(Convolution) 연산" sub="커널이 입력 위를 슬라이딩하며 특징을 추출하는 핵심 연산을 체험하세요"/>
-    <Tip color={C.accent}><span style={{color:C.accent,fontWeight:800}}>💡 합성곱이란?</span><br/>커널이 입력 위를 <span style={{color:C.accent3}}>슬라이딩</span>하며 <span style={{color:C.accent}}>element-wise 곱셈 후 합산</span>하여 피처맵을 만듭니다. 스트라이드·패딩으로 출력 크기를 조절할 수 있습니다.</Tip>
+    <Tip color={C.accent}><span style={{color:C.accent,fontWeight:800}}>💡 합성곱이란?</span><br/>커널이 입력 위를 <span style={{color:C.accent3}}>슬라이딩</span>하며 <span style={{color:C.accent}}>element-wise 곱셈 후 합산</span>하여 피처맵을 만듭니다.</Tip>
     <div className="card" style={{marginBottom:14}}><div style={{display:'flex',flexWrap:'wrap',gap:14}}>
       <Slider label="입력 크기" value={inputSize} onChange={setInputSize} min={4} max={10} desc={`${inputSize}×${inputSize}`}/>
       <Slider label="커널 크기" value={kernelSize} onChange={setKernelSize} min={2} max={5}/>
@@ -135,57 +100,72 @@ function ConvolutionTab(){
       <button onClick={()=>setSeed(s=>s+1)} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>⟳ 새 커널</button>
     </div></div>
     <div className="card" style={{marginBottom:14}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:8}}>
-      <InfoBox icon="📐" title="출력 크기"><span style={{color:C.accent3}}>⌊({inputSize}+2×{padding}-{kernelSize})/{stride}⌋+1 = </span><span style={{color:C.accent,fontWeight:800,fontSize:16}}>{outSize}</span></InfoBox>
-      <InfoBox icon="⚙️" title="연산량">곱셈 {outSize*outSize*kernelSize*kernelSize}회</InfoBox>
+      <InfoBox icon="📐" title="출력 크기">
+        <span style={{color:C.accent3}}>⌊({inputSize}+2×{padding}-{kernelSize})/{stride}⌋+1</span><br/>
+        = <span style={{color:outSize>0?C.accent:C.accent2,fontWeight:800,fontSize:16}}>{outSize>0?`${outSize}×${outSize}`:'불가!'}</span>
+      </InfoBox>
+      <InfoBox icon="⚙️" title="연산량">
+        {outSize>0?<span>
+          <span style={{color:C.accent3}}>곱셈:</span> {outSize}²×{kernelSize}² = <span style={{color:C.accent,fontWeight:800}}>{totalMuls}</span><br/>
+          <span style={{color:C.accent3}}>덧셈:</span> {outSize}²×({kernelSize}²-1) = <span style={{color:C.accent,fontWeight:800}}>{totalAdds}</span><br/>
+          <span style={{color:C.muted}}>합계 {totalMuls+totalAdds}회</span>
+        </span>:<span style={{color:C.accent2}}>설정 불가</span>}
+      </InfoBox>
     </div></div>
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>◀</button>
-        <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸ 정지':'▶ 재생'}</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>▶</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);syncStep(0)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.muted,fontFamily:mono,fontSize:11}}>↺</button>
-        <div style={{marginLeft:'auto',fontFamily:mono,fontSize:11,color:C.muted}}>스텝 <span style={{color:C.accent,fontWeight:700}}>{step+1}</span>/{totalSteps}</div>
-      </div>
-      <div style={{height:3,background:C.dim,borderRadius:2,marginBottom:14,overflow:'hidden'}}><div style={{height:'100%',width:`${((step+1)/totalSteps)*100}%`,background:`linear-gradient(90deg,${C.accent},${C.accent3})`,borderRadius:2,transition:'width .3s'}}/></div>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:12,flexWrap:'wrap'}}>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 {paddedSize}×{paddedSize}</div>
-          <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${paddedSize},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>
-            {paddedMat.flatMap((row,ri)=>row.map((val,ci)=>{const inK=ri>=kSR&&ri<kSR+kernelSize&&ci>=kSC&&ci<kSC+kernelSize;const isPad=ri<padding||ri>=padding+inputSize||ci<padding||ci>=padding+inputSize;const t=val/255;return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<28?7:9,fontFamily:mono,color:inK?'#fff':isPad?C.dim:(t>.55?'#0a0e1a':C.text),fontWeight:inK?800:400,background:inK?`rgba(0,229,199,${.35+t*.45})`:isPad?'rgba(90,109,142,.15)':`rgba(${14+t*40},${22+t*60},${50+t*100},1)`,borderRadius:2,border:inK?`2px solid ${C.kernelBorder}`:'1px solid transparent',transition:'all .15s'}}>{val}</div>}))}
-          </div></div>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:170,padding:'8px 0'}}>
-          <div style={{fontSize:16,color:C.accent}}>⟹</div>
-          <div style={{background:C.bg,borderRadius:8,padding:10,border:`1px solid ${C.kernelBorder}33`,width:'100%',maxWidth:200,margin:'4px 0'}}>
-            <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:6,textAlign:'center',fontWeight:700}}>원소별 곱셈</div>
-            <div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:3,marginBottom:8}}>
-              {products.map((p,i)=><div key={i} style={{textAlign:'center',fontSize:9,fontFamily:mono,lineHeight:1.3}}>
-                <div style={{color:C.accent}}>{p.v}</div><div style={{color:C.muted}}>×</div><div style={{color:C.accent3}}>{p.w}</div>
-                <div style={{borderTop:`1px solid ${C.dim}`,marginTop:2,paddingTop:2,color:p.p>0?C.relu:p.p<0?C.reluNeg:C.muted,fontWeight:700}}>{p.p}</div>
-              </div>)}
+
+    {outSize>0?<div>
+      <div className="card" style={{marginBottom:14}}>
+        <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
+          <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono}}>◀</button>
+          <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸ 정지':'▶ 재생'}</button>
+          <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono}}>▶</button>
+          <button onClick={()=>{stopTimer();setPlaying(false);syncStep(0)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.muted,fontFamily:mono,fontSize:11}}>↺</button>
+          <div style={{marginLeft:'auto',fontFamily:mono,fontSize:11,color:C.muted}}>스텝 <span style={{color:C.accent,fontWeight:700}}>{step+1}</span>/{totalSteps}</div>
+        </div>
+        <div style={{height:3,background:C.dim,borderRadius:2,marginBottom:14,overflow:'hidden'}}><div style={{height:'100%',width:`${((step+1)/totalSteps)*100}%`,background:`linear-gradient(90deg,${C.accent},${C.accent3})`,transition:'width .3s'}}/></div>
+        <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:12,flexWrap:'wrap'}}>
+          <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>입력{padding>0?' (패딩)':''} {paddedSize}×{paddedSize}</div>
+            <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${paddedSize},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>
+              {paddedMat.flatMap((row,ri)=>row.map((val,ci)=>{const inK=ri>=kSR&&ri<kSR+kernelSize&&ci>=kSC&&ci<kSC+kernelSize;const isPad=ri<padding||ri>=padding+inputSize||ci<padding||ci>=padding+inputSize;const t=val/255;return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<28?7:9,fontFamily:mono,color:inK?'#fff':isPad?C.dim:(t>.55?'#0a0e1a':C.text),fontWeight:inK?800:400,background:inK?`rgba(0,229,199,${.35+t*.45})`:isPad?'rgba(90,109,142,.15)':`rgba(${14+t*40},${22+t*60},${50+t*100},1)`,borderRadius:2,border:inK?`2px solid ${C.kernelBorder}`:'1px solid transparent',transition:'all .15s'}}>{val}</div>}))}
+            </div></div>
+          <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:170,padding:'8px 0'}}>
+            <div style={{fontSize:16,color:C.accent}}>⟹</div>
+            <div style={{background:C.bg,borderRadius:8,padding:10,border:`1px solid ${C.kernelBorder}33`,width:'100%',maxWidth:200,margin:'4px 0'}}>
+              <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:6,textAlign:'center',fontWeight:700}}>원소별 곱셈</div>
+              <div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:3,marginBottom:8}}>
+                {products.map((p,i)=><div key={i} style={{textAlign:'center',fontSize:9,fontFamily:mono,lineHeight:1.3}}>
+                  <div style={{color:C.accent}}>{p.v}</div><div style={{color:C.muted}}>×</div><div style={{color:C.accent3}}>{p.w}</div>
+                  <div style={{borderTop:`1px solid ${C.dim}`,marginTop:2,paddingTop:2,color:p.p>0?C.relu:p.p<0?C.reluNeg:C.muted,fontWeight:700}}>{p.p}</div>
+                </div>)}
+              </div>
+              <div style={{textAlign:'center',fontFamily:mono,fontSize:10,color:C.muted,borderTop:`1px solid ${C.dim}`,paddingTop:4}}>합 = <span style={{color:C.accent,fontWeight:800,fontSize:14}}>{currentSum}</span></div>
             </div>
-            <div style={{textAlign:'center',fontFamily:mono,fontSize:10,color:C.muted,borderTop:`1px solid ${C.dim}`,paddingTop:4}}>합 = <span style={{color:C.accent,fontWeight:800,fontSize:14}}>{currentSum}</span></div>
-          </div>
-          <div style={{fontSize:16,color:C.accent}}>⟹</div></div>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>출력 {outSize}×{outSize}</div>
-          <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${outSize},${outCellSz}px)`,gap:2,borderRadius:6,padding:2,background:C.border}}>
-            {convResult.flatMap((row,ri)=>row.map((val,ci)=>{const idx=ri*outSize+ci,done=idx<=step,cur=idx===step;return <div key={ri+'-'+ci} style={{width:outCellSz,height:outCellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:outCellSz<32?8:10,fontFamily:mono,fontWeight:700,borderRadius:3,background:cur?C.accent:done?`rgba(${20+Math.abs(val)/10},${40+Math.abs(val)/8},${80+Math.abs(val)/6},1)`:C.card,color:cur?C.bg:done?C.accent:C.dim,border:cur?`2px solid ${C.accent3}`:`1px solid ${done?C.accent+'33':C.border}`,transform:cur?'scale(1.1)':'scale(1)',transition:'all .15s'}}>{done?val:'?'}</div>}))}
-          </div></div>
+            <div style={{fontSize:16,color:C.accent}}>⟹</div></div>
+          <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>출력 {outSize}×{outSize}</div>
+            <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${outSize},${outCellSz}px)`,gap:2,borderRadius:6,padding:2,background:C.border}}>
+              {convResult.flatMap((row,ri)=>row.map((val,ci)=>{const idx=ri*outSize+ci,done=idx<=step,cur=idx===step;return <div key={ri+'-'+ci} style={{width:outCellSz,height:outCellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:outCellSz<32?8:10,fontFamily:mono,fontWeight:700,borderRadius:3,background:cur?C.accent:done?`rgba(${20+Math.abs(val)/10},${40+Math.abs(val)/8},${80+Math.abs(val)/6},1)`:C.card,color:cur?C.bg:done?C.accent:C.dim,border:cur?`2px solid ${C.accent3}`:`1px solid ${done?C.accent+'33':C.border}`,transform:cur?'scale(1.1)':'scale(1)',transition:'all .15s'}}>{done?val:'?'}</div>}))}
+            </div></div>
+        </div>
       </div>
+      <div className="card" style={{fontFamily:mono,fontSize:11,lineHeight:1.8}}><span style={{color:C.accent3,fontWeight:800}}>📝</span> 위치 ({kSR},{kSC}) → 곱합 = <span style={{color:C.accent,fontWeight:800}}>{currentSum}</span> → 출력({curR},{curC})</div>
     </div>
-    <div className="card" style={{fontFamily:mono,fontSize:11,lineHeight:1.8}}><span style={{color:C.accent3,fontWeight:800}}>📝</span> 위치 ({kSR},{kSC}) → 곱합 = <span style={{color:C.accent,fontWeight:800}}>{currentSum}</span> → 출력({curR},{curC})</div>
+    :<div className="card" style={{textAlign:'center',padding:30}}>
+      <div style={{fontSize:40,marginBottom:10}}>⚠️</div>
+      <div style={{fontFamily:mono,fontSize:13,color:C.accent2}}>커널({kernelSize})이 입력({paddedSize})보다 커서 합성곱 불가</div>
+      <div style={{fontFamily:mono,fontSize:11,color:C.muted,marginTop:8}}>패딩을 늘리거나 입력을 키우거나 커널을 줄여주세요.</div>
+    </div>}
   </div>
 }
 
-/* ══════════════════════════════════════════════
-   TAB 2: POOLING
-   ══════════════════════════════════════════════ */
+/* ═══ TAB 2: POOLING ═══ */
 function PoolingTab(){
   const [viewMode,setViewMode]=useState('both');const [inputSize,setInputSize]=useState(8);const [kernelSize,setKernelSize]=useState(2);const [poolMode,setPoolMode]=useState('max');const [numFilters,setNumFilters]=useState(1);const [seed,setSeed]=useState(42);const [activeFilter,setActiveFilter]=useState(0);const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);const [hovered,setHovered]=useState(null);const [imageSize,setImageSize]=useState(16);const [pattern,setPattern]=useState('smiley');
-  const stepRef=useRef(0);const timerRef=useRef(null);const outSize=Math.floor(inputSize/kernelSize);const totalSteps=outSize*outSize;const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
+  const stepRef=useRef(0);const timerRef=useRef(null);const outSize=Math.floor(inputSize/kernelSize);const totalSteps=Math.max(1,outSize*outSize);const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
   const matrices=useMemo(()=>Array.from({length:numFilters},(_,i)=>genMatrixPos(inputSize,inputSize,seed+i*1000)),[inputSize,numFilters,seed]);
   const allPooled=useMemo(()=>matrices.map(mat=>{const res=[];for(let i=0;i<outSize;i++){const row=[];for(let j=0;j<outSize;j++){const vals=[];for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++)vals.push(mat[i*kernelSize+ki][j*kernelSize+kj]);row.push({result:poolMode==='max'?Math.max(...vals):Math.round(vals.reduce((a,b)=>a+b)/vals.length),vals})}res.push(row)}return res}),[matrices,kernelSize,poolMode,outSize]);
   const syncStep=s=>{setStep(s);stepRef.current=s};function stopTimer(){if(timerRef.current!==null){clearInterval(timerRef.current);timerRef.current=null}}function startTimer(){stopTimer();timerRef.current=setInterval(()=>{if(stepRef.current>=totalStepsRef.current-1){stopTimer();setPlaying(false);return}const n=stepRef.current+1;stepRef.current=n;setStep(n)},600)}function handlePlay(){if(playing){stopTimer();setPlaying(false)}else{if(stepRef.current>=totalSteps-1)syncStep(0);setPlaying(true);startTimer()}}
   useEffect(()=>{syncStep(0);stopTimer();setPlaying(false)},[inputSize,kernelSize,poolMode,numFilters,seed,activeFilter]);useEffect(()=>()=>stopTimer(),[]);
-  const curR=Math.floor(step/outSize),curC=step%outSize;const kR=hovered?hovered.r*kernelSize:curR*kernelSize,kC=hovered?hovered.c*kernelSize:curC*kernelSize;const dR=hovered?hovered.r:curR,dC=hovered?hovered.c:curC;
+  const curR=outSize>0?Math.floor(step/outSize):0,curC=outSize>0?step%outSize:0;const kR=hovered?hovered.r*kernelSize:curR*kernelSize,kC=hovered?hovered.c*kernelSize:curC*kernelSize;const dR=hovered?hovered.r:curR,dC=hovered?hovered.c:curC;
   const mat=matrices[activeFilter];const pd=allPooled[activeFilter];const cVals=pd[dR]?.[dC]?.vals||[];const cResult=pd[dR]?.[dC]?.result??0;const pooledSimple=pd.map(r=>r.map(c=>c.result));
   const cellSz=inputSize>12?22:inputSize>8?26:inputSize>6?30:34;const outCellSz=outSize>6?26:36;
   const srcImg=useMemo(()=>generateImage(imageSize,pattern),[imageSize,pattern]);
@@ -217,13 +197,13 @@ function PoolingTab(){
       </div></div>}
     </div>}
 
-    {showN&&<div className="card" style={{marginBottom:14}}>
+    {showN&&outSize>0&&<div className="card" style={{marginBottom:14}}>
       <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:10}}>🔢 수치 풀링</div>
       {numFilters>1&&<div style={{display:'flex',gap:4,marginBottom:10}}>{Array.from({length:numFilters},(_,i)=><button key={i} onClick={()=>setActiveFilter(i)} style={{padding:'5px 12px',borderRadius:6,fontSize:11,fontWeight:700,fontFamily:mono,background:activeFilter===i?C.accent:C.card,color:activeFilter===i?C.bg:C.muted,border:`1px solid ${activeFilter===i?C.accent:C.border}`}}>#{i+1}</button>)}</div>}
       <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>◀</button>
+        <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono}}>◀</button>
         <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸':'▶'}</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>▶</button>
+        <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono}}>▶</button>
         <button onClick={()=>{stopTimer();setPlaying(false);syncStep(0)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.muted,fontFamily:mono,fontSize:11}}>↺</button>
         <button onClick={()=>setSeed(s=>s+7)} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700}}>⟳</button>
         <span style={{marginLeft:'auto',fontFamily:mono,fontSize:11,color:C.muted}}>{step+1}/{totalSteps}</span>
@@ -231,26 +211,24 @@ function PoolingTab(){
       <div style={{height:3,background:C.dim,borderRadius:2,marginBottom:12,overflow:'hidden'}}><div style={{height:'100%',width:`${((step+1)/totalSteps)*100}%`,background:`linear-gradient(90deg,${C.accent},${C.accent3})`,transition:'width .3s'}}/></div>
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:12,flexWrap:'wrap'}}>
         <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 {inputSize}×{inputSize}</div><div style={{display:'inline-grid',gridTemplateColumns:`repeat(${inputSize},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>{mat.flatMap((row,ri)=>row.map((val,ci)=>{const inK=ri>=kR&&ri<kR+kernelSize&&ci>=kC&&ci<kC+kernelSize;const t=val/255;return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<26?7:9,fontFamily:mono,color:inK?'#fff':(t>.55?'#0a0e1a':C.text),fontWeight:inK?800:400,background:inK?`rgba(0,229,199,${.35+t*.45})`:`rgba(${14+t*40},${22+t*60},${50+t*100},1)`,borderRadius:2,border:inK?`2px solid ${C.kernelBorder}`:'1px solid transparent',transition:'all .15s'}}>{val}</div>}))}</div></div>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:120,padding:'8px 0'}}><div style={{fontSize:16,color:C.accent}}>⟹</div><div style={{background:C.bg,borderRadius:8,padding:8,border:`1px solid ${C.kernelBorder}33`,maxWidth:140,margin:'4px 0'}}><div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:2,marginBottom:4}}>{cVals.map((v,i)=>{const isM=poolMode==='max'&&v===cResult;return <div key={i} style={{padding:'3px 0',textAlign:'center',borderRadius:3,fontSize:10,fontFamily:mono,fontWeight:isM?800:400,background:isM?`${C.accent}33`:C.card,color:isM?C.accent:C.text,border:isM?`1px solid ${C.accent}`:`1px solid ${C.border}`}}>{v}</div>})}</div><div style={{fontSize:9,fontFamily:mono,color:C.muted,textAlign:'center'}}>{poolMode} → <span style={{color:C.accent,fontWeight:800,fontSize:12}}>{cResult}</span></div></div><div style={{fontSize:16,color:C.accent}}>⟹</div></div>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:120,padding:'8px 0'}}><div style={{fontSize:16,color:C.accent}}>⟹</div><div style={{background:C.bg,borderRadius:8,padding:8,border:`1px solid ${C.kernelBorder}33`,maxWidth:140,margin:'4px 0'}}><div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:2,marginBottom:4}}>{cVals.map((v,i)=>{const isM=poolMode==='max'&&v===cResult;return <div key={i} style={{padding:'3px 0',textAlign:'center',borderRadius:3,fontSize:10,fontFamily:mono,fontWeight:isM?800:400,background:isM?`${C.accent}33`:C.card,color:isM?C.accent:C.text,border:isM?`1px solid ${C.accent}`:`1px solid ${C.border}`}}>{v}</div>})}</div><div style={{fontSize:9,fontFamily:mono,color:C.muted,textAlign:'center'}}>{poolMode}→<span style={{color:C.accent,fontWeight:800,fontSize:12}}>{cResult}</span></div></div><div style={{fontSize:16,color:C.accent}}>⟹</div></div>
         <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>출력 {outSize}×{outSize}</div><div style={{display:'inline-grid',gridTemplateColumns:`repeat(${outSize},${outCellSz}px)`,gap:2,borderRadius:6,padding:2,background:C.border}}>{pooledSimple.flatMap((row,ri)=>row.map((val,ci)=>{const idx=ri*outSize+ci,done=idx<=step,cur=idx===step,t=val/255;return <div key={ri+'-'+ci} onMouseEnter={()=>setHovered({r:ri,c:ci})} onMouseLeave={()=>setHovered(null)} style={{width:outCellSz,height:outCellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:outCellSz<30?9:11,fontFamily:mono,fontWeight:700,borderRadius:3,cursor:'pointer',background:cur?C.accent:done?`rgba(${20+t*50},${45+t*90},${80+t*130},1)`:C.card,color:cur?C.bg:done?C.accent:C.dim,border:cur?`2px solid ${C.accent3}`:`1px solid ${done?C.accent+'33':C.border}`,transform:cur?'scale(1.1)':'scale(1)',transition:'all .15s'}}>{done?val:'?'}</div>}))}</div></div>
       </div>
     </div>}
   </div>
 }
 
-/* ══════════════════════════════════════════════
-   TAB 3: ReLU
-   ══════════════════════════════════════════════ */
+/* ═══ TAB 3: ReLU ═══ */
 function ReluTab(){
   const [size,setSize]=useState(6);const [seed,setSeed]=useState(99);const [showAnim,setShowAnim]=useState(false);const [animStep,setAnimStep]=useState(0);const animRef=useRef(null);
   const matrix=useMemo(()=>genMatrixSigned(size,size,seed),[size,seed]);const reluMatrix=useMemo(()=>matrix.map(r=>r.map(v=>Math.max(0,v))),[matrix]);const negCount=matrix.flat().filter(v=>v<0).length;const total=size*size;const cellSz=size>8?28:size>6?34:40;
   function startAnim(){setAnimStep(0);setShowAnim(true);let s=0;if(animRef.current)clearInterval(animRef.current);animRef.current=setInterval(()=>{s++;if(s>=total){clearInterval(animRef.current);animRef.current=null}setAnimStep(s)},80)}
   useEffect(()=>{setShowAnim(false);setAnimStep(0);if(animRef.current){clearInterval(animRef.current);animRef.current=null}},[size,seed]);useEffect(()=>()=>{if(animRef.current)clearInterval(animRef.current)},[]);
-  const displayMat=showAnim?matrix.map((r,ri)=>r.map((v,ci)=>{return ri*size+ci<animStep?Math.max(0,v):v})):null;
-  function CellGrid({data,mode}){return <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${size},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>{data.flatMap((row,ri)=>row.map((val,ci)=>{const origNeg=matrix[ri][ci]<0;const neg=val<0;const t=Math.abs(val)/255;let bg,color;if(neg){bg=`rgba(239,68,68,${.2+t*.5})`;color=C.reluNeg}else if(mode==='relu'&&origNeg){bg='rgba(34,197,94,.15)';color=C.relu}else{bg=`rgba(${14+t*40},${22+t*60},${50+t*100},1)`;color=t>.5?'#0a0e1a':C.text}return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<30?9:11,fontFamily:mono,fontWeight:(neg||origNeg)?800:400,background:bg,color,borderRadius:2,border:mode==='relu'&&origNeg?`1px solid ${C.relu}44`:'1px solid transparent'}}>{val}</div>}))}</div>}
+  const displayMat=showAnim?matrix.map((r,ri)=>r.map((v,ci)=>ri*size+ci<animStep?Math.max(0,v):v)):null;
+  function CellGrid({data,mode}){return <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${size},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>{data.flatMap((row,ri)=>row.map((val,ci)=>{const origNeg=matrix[ri][ci]<0;const neg=val<0;const t=Math.abs(val)/255;let bg,color;if(neg){bg=`rgba(239,68,68,${.2+t*.5})`;color=C.reluNeg}else if(mode==='relu'&&origNeg){bg='rgba(34,197,94,.15)';color=C.relu}else{bg=`rgba(${14+t*40},${22+t*60},${50+t*100},1)`;color=t>.5?'#0a0e1a':C.text}return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<30?9:11,fontFamily:mono,fontWeight:(neg||(mode==='relu'&&origNeg))?800:400,background:bg,color,borderRadius:2,border:mode==='relu'&&origNeg?`1px solid ${C.relu}44`:'1px solid transparent'}}>{val}</div>}))}</div>}
   return <div>
     <SectionTitle icon="⚡" title="활성화 함수 (ReLU)" sub="음수→0 변환으로 비선형성을 부여하는 ReLU를 체험하세요"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 왜?</span> 선형 변환만 쌓으면 <span style={{color:C.accent2}}>f(g(x))=ax+b</span>. ReLU로 비선형성을 추가하면 <span style={{color:C.accent}}>복잡한 패턴</span> 학습 가능!</Tip>
+    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡</span> 선형 변환만 쌓으면 <span style={{color:C.accent2}}>f(g(x))=ax+b</span>. ReLU로 비선형성을 추가해야 <span style={{color:C.accent}}>복잡한 패턴</span> 학습 가능!</Tip>
     <div className="card" style={{marginBottom:14}}>
       <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:14}}><Slider label="맵 크기" value={size} onChange={setSize} min={4} max={10}/><button onClick={()=>setSeed(s=>s+1)} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>⟳</button><button onClick={startAnim} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent,color:C.bg,fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>▶ 셀별 변환</button></div>
       <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:14,flexWrap:'wrap'}}>
@@ -260,291 +238,130 @@ function ReluTab(){
       </div>
     </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
-      <InfoBox icon="🔢" title="통계">{total}개 중 <span style={{color:C.reluNeg}}>{negCount}개</span>→0 (<span style={{color:C.accent3,fontWeight:800}}>{((negCount/total)*100).toFixed(1)}%</span> 비활성화)</InfoBox>
-      <InfoBox icon="🎯" title="의미">비활성 뉴런 = <span style={{color:C.accent2}}>특징 미감지</span> → <span style={{color:C.accent}}>희소 표현</span></InfoBox>
+      <InfoBox icon="🔢" title="통계">{total}개 중 <span style={{color:C.reluNeg}}>{negCount}개</span>→0 (<span style={{color:C.accent3,fontWeight:800}}>{((negCount/total)*100).toFixed(1)}%</span>)</InfoBox>
+      <InfoBox icon="🎯" title="의미">비활성 = <span style={{color:C.accent2}}>특징 미감지</span> → <span style={{color:C.accent}}>희소 표현</span></InfoBox>
       <InfoBox icon="📈" title="그래프"><svg viewBox="0 0 200 120" style={{width:'100%',maxWidth:200}}><line x1={20} y1={60} x2={180} y2={60} stroke={C.dim} strokeWidth={1}/><line x1={100} y1={10} x2={100} y2={110} stroke={C.dim} strokeWidth={1}/><line x1={20} y1={60} x2={100} y2={60} stroke={C.reluNeg} strokeWidth={2.5}/><line x1={100} y1={60} x2={180} y2={10} stroke={C.relu} strokeWidth={2.5}/><circle cx={100} cy={60} r={3} fill={C.accent3}/></svg></InfoBox>
     </div>
   </div>
 }
 
-/* ══════════════════════════════════════════════
-   TAB 4: FEATURE EXTRACTION — IMAGE BASED
-   ══════════════════════════════════════════════ */
+/* ═══ TAB 4: FEATURE EXTRACTION ═══ */
 function FeatureMapTab(){
-  const [imgSize,setImgSize]=useState(20);
-  const [pattern,setPattern]=useState('smiley');
-  const [activeKernel,setActiveKernel]=useState(0);
-  const [showRelu,setShowRelu]=useState(false);
-  const [showPool,setShowPool]=useState(false);
-  const [poolKernel,setPoolKernel]=useState(2);
-
-  const kernels=[
-    {name:'수평 엣지',kernel:[[-1,-1,-1],[0,0,0],[1,1,1]],color:'#4ecdc4',desc:'가로 방향 밝기 변화 감지'},
-    {name:'수직 엣지',kernel:[[-1,0,1],[-1,0,1],[-1,0,1]],color:'#00b8d4',desc:'세로 방향 밝기 변화 감지'},
-    {name:'대각선',kernel:[[1,0,-1],[0,0,0],[-1,0,1]],color:'#ffd166',desc:'대각선 방향 경계 감지'},
-    {name:'샤프닝',kernel:[[0,-1,0],[-1,5,-1],[0,-1,0]],color:'#ff5577',desc:'이미지 선명하게 (엣지 강조)'},
-    {name:'블러',kernel:[[1,1,1],[1,1,1],[1,1,1]],color:'#a78bfa',desc:'이미지 부드럽게 (평균 필터)'},
-  ];
-
+  const [imgSize,setImgSize]=useState(20);const [pattern,setPattern]=useState('smiley');const [activeKernel,setActiveKernel]=useState(0);const [showRelu,setShowRelu]=useState(false);const [showPool,setShowPool]=useState(false);const [poolKernel,setPoolKernel]=useState(2);
+  const kernels=[{name:'수평 엣지',kernel:[[-1,-1,-1],[0,0,0],[1,1,1]],color:'#4ecdc4',desc:'가로 방향 밝기 변화 감지'},{name:'수직 엣지',kernel:[[-1,0,1],[-1,0,1],[-1,0,1]],color:'#00b8d4',desc:'세로 방향 밝기 변화 감지'},{name:'대각선',kernel:[[1,0,-1],[0,0,0],[-1,0,1]],color:'#ffd166',desc:'대각선 방향 경계 감지'},{name:'샤프닝',kernel:[[0,-1,0],[-1,5,-1],[0,-1,0]],color:'#ff5577',desc:'엣지 강조 (이미지 선명하게)'},{name:'블러',kernel:[[1,1,1],[1,1,1],[1,1,1]],color:'#a78bfa',desc:'평균 필터 (부드럽게)'}];
   const srcImg=useMemo(()=>generateImage(imgSize,pattern),[imgSize,pattern]);
   const gray=useMemo(()=>imgToGray(srcImg),[srcImg]);
-
   const convResults=useMemo(()=>kernels.map(k=>convGray(gray,k.kernel)),[gray]);
   const reluResults=useMemo(()=>convResults.map(c=>reluMap(c)),[convResults]);
   const poolResults=useMemo(()=>reluResults.map(r=>poolMap(r,poolKernel,'max')),[reluResults,poolKernel]);
-
-  const activeConv=convResults[activeKernel];
-  const activeRelu=reluResults[activeKernel];
-  const activePool=poolResults[activeKernel];
-  const aK=kernels[activeKernel];
-
+  const aK=kernels[activeKernel];const activeConv=convResults[activeKernel];const activeRelu=reluResults[activeKernel];const activePool=poolResults[activeKernel];
   const imgPxSz=imgSize>24?7:imgSize>16?9:imgSize>10?12:16;
-  const convSz=activeConv[0]?.length||1;
+  const convSz=activeConv[0]?.length||1;const poolSz=activePool[0]?.length||1;
   const convPxSz=Math.max(4,Math.min(16,Math.round(imgPxSz*imgSize/convSz)));
-  const reluSz=activeRelu[0]?.length||1;
-  const reluPxSz=Math.max(4,Math.min(16,Math.round(imgPxSz*imgSize/reluSz)));
-  const poolSz=activePool[0]?.length||1;
   const poolPxSz=Math.max(4,Math.min(20,Math.round(imgPxSz*imgSize/poolSz)));
-
-  const greenRed=(v,mx)=>{if(v>=0)return[0,Math.round((v/mx)*220)+30,0];return[Math.round((-v/mx)*220)+30,0,0]};
+  const greenRed=(v,mx)=>v>=0?[0,Math.round((v/mx)*220)+30,0]:[Math.round((-v/mx)*220)+30,0,0];
 
   return <div>
-    <SectionTitle icon="🧠" title="계층적 특징 추출 — 실제 이미지 체험" sub="이미지에 직접 필터를 적용하고 Conv→ReLU→Pool 파이프라인을 관찰하세요"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 직접 해보세요!</span> 이미지와 필터를 바꿔가며 <span style={{color:C.accent}}>어떤 특징이 추출되는지</span> 관찰하세요.<br/>ReLU와 Pooling 스위치를 켜면 CNN의 한 층이 실제로 하는 일을 처음부터 끝까지 볼 수 있습니다.</Tip>
-
+    <SectionTitle icon="🧠" title="계층적 특징 추출 — 이미지 체험" sub="이미지에 필터를 적용하고 Conv→ReLU→Pool 파이프라인을 관찰하세요"/>
+    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 직접 해보세요!</span> 이미지와 필터를 바꿔가며 <span style={{color:C.accent}}>어떤 특징이 추출되는지</span> 관찰하세요. ReLU와 Pooling 스위치를 켜면 한 층의 전체 동작을 볼 수 있습니다.</Tip>
     <div className="card" style={{marginBottom:14}}>
       <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:14}}>
         <Slider label="이미지 크기" value={imgSize} onChange={setImgSize} min={10} max={32}/>
-        <div style={{minWidth:150}}>
-          <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>이미지 패턴</div>
-          <div style={{display:'flex',gap:3}}>
-            {[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'5px',borderRadius:6,border:pattern===k?`1px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:14,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}
-          </div>
-        </div>
+        <div style={{minWidth:150}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>패턴</div><div style={{display:'flex',gap:3}}>{[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'5px',borderRadius:6,border:pattern===k?`1px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:14,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}</div></div>
       </div>
-
-      {/* Kernel selector */}
-      <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:6}}>🎛️ 필터(커널) 선택 — 클릭하여 효과를 비교하세요</div>
+      <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:6}}>🎛️ 필터 선택 — 클릭하여 비교</div>
       <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-        {kernels.map((k,i)=><button key={i} onClick={()=>setActiveKernel(i)} style={{padding:'8px 10px',borderRadius:8,border:`2px solid ${activeKernel===i?k.color:C.border}`,background:activeKernel===i?`${k.color}22`:C.bg,fontFamily:mono,fontSize:10,color:k.color,fontWeight:700,textAlign:'center',minWidth:80}}>
+        {kernels.map((k,i)=><button key={i} onClick={()=>setActiveKernel(i)} style={{padding:'8px 10px',borderRadius:8,border:`2px solid ${activeKernel===i?k.color:C.border}`,background:activeKernel===i?`${k.color}22`:C.bg,fontFamily:mono,fontSize:10,color:k.color,fontWeight:700,textAlign:'center',minWidth:76}}>
           <div>{k.name}</div>
           <div style={{display:'grid',gridTemplateColumns:'repeat(3,16px)',gap:1,margin:'4px auto 0',justifyContent:'center'}}>
-            {k.kernel.flatMap((row,ri)=>row.map((v,ci)=><div key={ri+'-'+ci} style={{width:16,height:14,fontSize:7,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:2,background:v>0?`rgba(34,197,94,${v*.2})`:v<0?`rgba(239,68,68,${-v*.2})`:C.dim,color:v===0?C.dim:v>0?C.relu:C.reluNeg}}>{v}</div>))}
+            {k.kernel.flatMap((row,ri)=>row.map((v,ci)=><div key={ri+'-'+ci} style={{width:16,height:14,fontSize:7,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:2,background:v>0?`rgba(34,197,94,${Math.min(v*.2,1)})`:v<0?`rgba(239,68,68,${Math.min(-v*.2,1)})`:C.dim,color:v===0?C.dim:v>0?C.relu:C.reluNeg}}>{v}</div>))}
           </div>
         </button>)}
       </div>
-
-      {/* Pipeline toggles */}
       <div style={{display:'flex',gap:10,marginBottom:14,fontFamily:mono,fontSize:12}}>
-        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showRelu?C.relu:C.muted}}>
-          <input type="checkbox" checked={showRelu} onChange={e=>setShowRelu(e.target.checked)} style={{accentColor:C.relu}}/>
-          ReLU 적용
-        </label>
-        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showPool?C.accent:C.muted}}>
-          <input type="checkbox" checked={showPool} onChange={e=>setShowPool(e.target.checked)} style={{accentColor:C.accent}}/>
-          Max Pooling (÷{poolKernel})
-        </label>
+        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showRelu?C.relu:C.muted}}><input type="checkbox" checked={showRelu} onChange={e=>setShowRelu(e.target.checked)} style={{accentColor:C.relu}}/> ReLU 적용</label>
+        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showPool?C.accent:C.muted}}><input type="checkbox" checked={showPool} onChange={e=>setShowPool(e.target.checked)} style={{accentColor:C.accent}}/> Max Pooling</label>
         {showPool&&<Slider label="풀링 커널" value={poolKernel} onChange={setPoolKernel} min={2} max={3}/>}
       </div>
-
-      {/* Visual Pipeline */}
       <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'center',padding:'10px 0'}}>
-        <PixelCanvas img={srcImg} pixelSize={imgPxSz} label="원본 이미지" borderColor={C.accent3}/>
-
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:aK.color}}>
-          <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${aK.color}44`}}>Conv</span>
-        </div>
-
-        <GrayCanvas data={activeConv} pixelSize={convPxSz} label={`합성곱 결과 (${aK.name})`} borderColor={aK.color} colorFn={greenRed}/>
-
-        {showRelu&&<>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.relu}}>
-            <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.relu}44`}}>ReLU</span>
-          </div>
-          <GrayCanvas data={activeRelu} pixelSize={reluPxSz} label="ReLU 적용" borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>
-        </>}
-
-        {showPool&&showRelu&&<>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.accent}}>
-            <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.accent}44`}}>Pool</span>
-          </div>
-          <GrayCanvas data={activePool} pixelSize={poolPxSz} label={`Max Pool (${poolSz}×${poolSz})`} borderColor={C.accent} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>
-        </>}
+        <PixelCanvas img={srcImg} pixelSize={imgPxSz} label="원본" borderColor={C.accent3}/>
+        <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:aK.color}}><span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${aK.color}44`}}>Conv</span></div>
+        <GrayCanvas data={activeConv} pixelSize={convPxSz} label={`합성곱 (${aK.name})`} borderColor={aK.color} colorFn={greenRed}/>
+        {showRelu&&<><div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.relu}}><span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.relu}44`}}>ReLU</span></div><GrayCanvas data={activeRelu} pixelSize={convPxSz} label="ReLU" borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/></>}
+        {showPool&&showRelu&&<><div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.accent}}><span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.accent}44`}}>Pool</span></div><GrayCanvas data={activePool} pixelSize={poolPxSz} label={`Pool (${poolSz}×${poolSz})`} borderColor={C.accent} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/></>}
       </div>
-
       <div style={{padding:10,background:`${aK.color}10`,borderRadius:8,border:`1px solid ${aK.color}22`,fontFamily:mono,fontSize:11,color:C.text,lineHeight:1.7,marginTop:8}}>
         <span style={{color:aK.color,fontWeight:800}}>🔎 {aK.name}:</span> {aK.desc}
-        {showRelu&&<><br/><span style={{color:C.relu}}>→ ReLU:</span> 음수(감지 안 된 영역)가 0이 되어 검은색으로 나타남</>}
-        {showPool&&showRelu&&<><br/><span style={{color:C.accent}}>→ Pooling:</span> 크기 {convSz}→{poolSz}로 축소, 핵심 특징만 유지</>}
+        {showRelu&&<><br/><span style={{color:C.relu}}>→ ReLU:</span> 음수(감지 안 된 영역)→0 (검은색)</>}
+        {showPool&&showRelu&&<><br/><span style={{color:C.accent}}>→ Pooling:</span> {convSz}→{poolSz}로 축소</>}
       </div>
     </div>
-
-    {/* All filters comparison */}
     <div className="card">
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:10}}>🔬 모든 필터 결과 한눈에 비교</div>
+      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:10}}>🔬 모든 필터 비교</div>
       <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
-        {kernels.map((k,i)=>{
-          const data=showRelu?reluResults[i]:convResults[i];
-          const sz=data[0]?.length||1;
-          const px=Math.max(3,Math.min(10,Math.round(120/sz)));
-          return <div key={i} style={{textAlign:'center'}}>
-            <GrayCanvas data={data} pixelSize={px} label={k.name} borderColor={k.color} colorFn={showRelu?(v,mx)=>[0,Math.round((v/mx)*230)+20,0]:greenRed}/>
-          </div>
-        })}
+        {kernels.map((k,i)=>{const data=showRelu?reluResults[i]:convResults[i];const sz=data[0]?.length||1;const px=Math.max(3,Math.min(10,Math.round(120/sz)));return <GrayCanvas key={i} data={data} pixelSize={px} label={k.name} borderColor={k.color} colorFn={showRelu?(v,mx)=>[0,Math.round((v/mx)*230)+20,0]:greenRed}/>})}
       </div>
     </div>
   </div>
 }
 
-/* ══════════════════════════════════════════════
-   TAB 5: FULL PIPELINE CLASSIFICATION
-   ══════════════════════════════════════════════ */
+/* ═══ TAB 5: CLASSIFICATION ═══ */
 function FlattenFCTab(){
-  const [imgSize,setImgSize]=useState(16);
-  const [pattern,setPattern]=useState('smiley');
-  const [poolKernel,setPoolKernel]=useState(2);
-
-  const patterns=['smiley','heart','star','cross','gradient'];
-  const classLabels=['스마일','하트','별','십자','그라데이션'];
-
-  const srcImg=useMemo(()=>generateImage(imgSize,pattern),[imgSize,pattern]);
-  const gray=useMemo(()=>imgToGray(srcImg),[srcImg]);
-
-  // 3 conv filters
-  const filterSet=[
-    [[-1,-1,-1],[0,0,0],[1,1,1]],
-    [[-1,0,1],[-1,0,1],[-1,0,1]],
-    [[1,0,-1],[0,0,0],[-1,0,1]],
-  ];
+  const [imgSize,setImgSize]=useState(16);const [pattern,setPattern]=useState('smiley');const [poolKernel,setPoolKernel]=useState(2);
+  const patterns=['smiley','heart','star','cross','gradient'];const classLabels=['스마일','하트','별','십자','그라데이션'];
+  const srcImg=useMemo(()=>generateImage(imgSize,pattern),[imgSize,pattern]);const gray=useMemo(()=>imgToGray(srcImg),[srcImg]);
+  const filterSet=[[[-1,-1,-1],[0,0,0],[1,1,1]],[[-1,0,1],[-1,0,1],[-1,0,1]],[[1,0,-1],[0,0,0],[-1,0,1]]];
   const convMaps=useMemo(()=>filterSet.map(k=>convGray(gray,k)),[gray]);
   const reluMaps=useMemo(()=>convMaps.map(c=>reluMap(c)),[convMaps]);
   const poolMaps=useMemo(()=>reluMaps.map(r=>poolMap(r,poolKernel,'max')),[reluMaps,poolKernel]);
-
-  // Flatten
-  const flatVals=useMemo(()=>poolMaps.flatMap(m=>m.flat().map(v=>Math.round(v))),[poolMaps]);
-  const flatLen=flatVals.length;
-
-  // Simple "classification" by pattern matching energy
-  const scores=useMemo(()=>{
-    const energies=patterns.map((_,pi)=>{
-      const testImg=generateImage(imgSize,patterns[pi]);
-      const testGray=imgToGray(testImg);
-      const testFlat=filterSet.flatMap(k=>poolMap(reluMap(convGray(testGray,k)),poolKernel,'max').flat());
-      let dot=0,magA=0,magB=0;
-      for(let i=0;i<Math.min(flatVals.length,testFlat.length);i++){dot+=flatVals[i]*testFlat[i];magA+=flatVals[i]*flatVals[i];magB+=testFlat[i]*testFlat[i]}
-      return magA>0&&magB>0?dot/(Math.sqrt(magA)*Math.sqrt(magB)):0;
-    });
-    const sum=energies.reduce((a,b)=>a+b,.001);
-    return energies.map(e=>Math.round(e/sum*100));
-  },[flatVals,imgSize,poolKernel]);
-
-  const maxClass=scores.indexOf(Math.max(...scores));
-
-  const imgPxSz=imgSize>24?7:imgSize>16?9:12;
-  const convSz=convMaps[0]?.[0]?.length||1;
-  const poolSz=poolMaps[0]?.[0]?.length||1;
-  const cPx=Math.max(3,Math.min(10,Math.round(100/convSz)));
-  const pPx=Math.max(3,Math.min(14,Math.round(100/poolSz)));
+  const flatVals=useMemo(()=>poolMaps.flatMap(m=>m.flat().map(v=>Math.round(v))),[poolMaps]);const flatLen=flatVals.length;
+  const scores=useMemo(()=>{const energies=patterns.map((_,pi)=>{const tImg=generateImage(imgSize,patterns[pi]);const tGray=imgToGray(tImg);const tFlat=filterSet.flatMap(k=>poolMap(reluMap(convGray(tGray,k)),poolKernel,'max').flat());let dot=0,mA=0,mB=0;for(let i=0;i<Math.min(flatVals.length,tFlat.length);i++){dot+=flatVals[i]*tFlat[i];mA+=flatVals[i]*flatVals[i];mB+=tFlat[i]*tFlat[i]}return mA>0&&mB>0?dot/(Math.sqrt(mA)*Math.sqrt(mB)):0});const s=energies.reduce((a,b)=>a+b,.001);return energies.map(e=>Math.round(e/s*100))},[flatVals,imgSize,poolKernel]);
+  const maxC=scores.indexOf(Math.max(...scores));
+  const imgPxSz=imgSize>24?7:imgSize>16?9:12;const convSz=convMaps[0]?.[0]?.length||1;const poolSz=poolMaps[0]?.[0]?.length||1;
+  const cPx=Math.max(3,Math.min(10,Math.round(100/convSz)));const pPx=Math.max(3,Math.min(14,Math.round(100/poolSz)));
 
   return <div>
-    <SectionTitle icon="🏗️" title="CNN 전체 파이프라인 — 이미지 분류 체험" sub="이미지를 넣으면 Conv→ReLU→Pool→Flatten→분류까지 전 과정이 진행됩니다"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 직접 해보세요!</span> 아래에서 이미지 패턴을 바꿔가며 <span style={{color:C.accent}}>분류 결과가 어떻게 달라지는지</span> 확인하세요.<br/>피처맵, 풀링 크기를 조절하면 분류 정확도가 변하는 것을 관찰할 수 있습니다.</Tip>
-
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',flexWrap:'wrap',gap:12}}>
-        <Slider label="이미지 크기" value={imgSize} onChange={setImgSize} min={10} max={24}/>
-        <Slider label="풀링 커널" value={poolKernel} onChange={setPoolKernel} min={2} max={3}/>
-        <div style={{minWidth:200}}>
-          <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 이미지 선택</div>
-          <div style={{display:'flex',gap:4}}>
-            {[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'6px',borderRadius:6,border:pattern===k?`2px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:16,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}
-          </div>
-        </div>
-      </div>
-    </div>
-
-    {/* Full pipeline visualization */}
+    <SectionTitle icon="🏗️" title="CNN 전체 파이프라인 — 분류 체험" sub="이미지를 넣으면 Conv→ReLU→Pool→Flatten→분류 전 과정이 진행됩니다"/>
+    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡</span> 이미지 패턴을 바꿔가며 <span style={{color:C.accent}}>분류 결과가 어떻게 달라지는지</span> 확인하세요!</Tip>
+    <div className="card" style={{marginBottom:14}}><div style={{display:'flex',flexWrap:'wrap',gap:12}}>
+      <Slider label="이미지 크기" value={imgSize} onChange={setImgSize} min={10} max={24}/>
+      <Slider label="풀링 커널" value={poolKernel} onChange={setPoolKernel} min={2} max={3}/>
+      <div style={{minWidth:200}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 이미지</div><div style={{display:'flex',gap:4}}>{[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'6px',borderRadius:6,border:pattern===k?`2px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:16,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}</div></div>
+    </div></div>
     <div className="card" style={{marginBottom:14,overflowX:'auto'}}>
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:12}}>🔬 전체 파이프라인 시각화</div>
-      <div style={{display:'flex',alignItems:'flex-start',gap:8,minWidth:800,padding:'8px 0'}}>
-
-        {/* 1. Input image */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>① 입력</div>
-          <PixelCanvas img={srcImg} pixelSize={imgPxSz} borderColor={C.accent3}/>
-        </div>
+      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:12}}>🔬 전체 파이프라인</div>
+      <div style={{display:'flex',alignItems:'flex-start',gap:8,minWidth:750,padding:'8px 0'}}>
+        <div style={{textAlign:'center',flexShrink:0}}><div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>① 입력</div><PixelCanvas img={srcImg} pixelSize={imgPxSz} borderColor={C.accent3}/></div>
         <div style={{color:C.accent,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 2. Conv maps */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent,fontFamily:mono,fontWeight:700,marginBottom:4}}>② Conv×3</div>
-          <div style={{display:'flex',gap:3}}>
-            {convMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.accent} colorFn={(v,mx)=>{if(v>=0)return[0,Math.round((v/mx)*200)+50,0];return[Math.round((-v/mx)*200)+50,0,0]}}/>)}
-          </div>
-        </div>
+        <div style={{textAlign:'center',flexShrink:0}}><div style={{fontSize:10,color:C.accent,fontFamily:mono,fontWeight:700,marginBottom:4}}>② Conv×3</div><div style={{display:'flex',gap:3}}>{convMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.accent} colorFn={(v,mx)=>v>=0?[0,Math.round((v/mx)*200)+50,0]:[Math.round((-v/mx)*200)+50,0,0]}/>)}</div></div>
         <div style={{color:C.relu,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 3. ReLU */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.relu,fontFamily:mono,fontWeight:700,marginBottom:4}}>③ ReLU</div>
-          <div style={{display:'flex',gap:3}}>
-            {reluMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}
-          </div>
-        </div>
+        <div style={{textAlign:'center',flexShrink:0}}><div style={{fontSize:10,color:C.relu,fontFamily:mono,fontWeight:700,marginBottom:4}}>③ ReLU</div><div style={{display:'flex',gap:3}}>{reluMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}</div></div>
         <div style={{color:C.accent,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 4. Pool */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:'#00b8d4',fontFamily:mono,fontWeight:700,marginBottom:4}}>④ Pool</div>
-          <div style={{display:'flex',gap:3}}>
-            {poolMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={pPx} borderColor={'#00b8d4'} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}
-          </div>
-          <div style={{fontSize:9,color:C.muted,fontFamily:mono,marginTop:2}}>3×{poolSz}×{poolSz}</div>
-        </div>
+        <div style={{textAlign:'center',flexShrink:0}}><div style={{fontSize:10,color:'#00b8d4',fontFamily:mono,fontWeight:700,marginBottom:4}}>④ Pool</div><div style={{display:'flex',gap:3}}>{poolMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={pPx} borderColor={'#00b8d4'} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}</div></div>
         <div style={{color:C.accent3,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 5. Flatten */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑤ Flatten</div>
-          <div style={{display:'flex',flexDirection:'column',gap:1,maxHeight:140,overflow:'hidden',padding:2,background:C.border,borderRadius:4}}>
-            {flatVals.slice(0,18).map((v,i)=>{const t=Math.min(v,255)/255;return <div key={i} style={{width:24,height:10,borderRadius:1,background:`rgba(0,${Math.round(t*230)+20},0,1)`,fontSize:5,fontFamily:mono,display:'flex',alignItems:'center',justifyContent:'center',color:t>.5?'#000':C.text}}/>})}
-            {flatLen>18&&<div style={{fontSize:7,color:C.muted,fontFamily:mono}}>⋮</div>}
-          </div>
-          <div style={{fontSize:9,color:C.muted,fontFamily:mono,marginTop:2}}>1D [{flatLen}]</div>
-        </div>
+        <div style={{textAlign:'center',flexShrink:0}}><div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑤ Flatten</div><div style={{display:'flex',flexDirection:'column',gap:1,maxHeight:130,overflow:'hidden',padding:2,background:C.border,borderRadius:4}}>{flatVals.slice(0,16).map((v,i)=>{const t=Math.min(v,255)/255;return <div key={i} style={{width:24,height:10,borderRadius:1,background:`rgba(0,${Math.round(t*230)+20},0,1)`}}/>})}{flatLen>16&&<div style={{fontSize:7,color:C.muted,fontFamily:mono}}>⋮</div>}</div><div style={{fontSize:9,color:C.muted,fontFamily:mono,marginTop:2}}>[{flatLen}]</div></div>
         <div style={{color:C.accent4,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 6. FC + Softmax */}
         <div style={{textAlign:'center',flexShrink:0,minWidth:110}}>
-          <div style={{fontSize:10,color:C.accent2,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑥ FC + Softmax</div>
+          <div style={{fontSize:10,color:C.accent2,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑥ 분류</div>
           {classLabels.map((cls,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:3,marginBottom:3}}>
-            <span style={{fontSize:9,fontFamily:mono,color:C.text,width:50,textAlign:'right'}}>{patterns[i]==='smiley'?'😊':patterns[i]==='heart'?'❤️':patterns[i]==='star'?'⭐':patterns[i]==='cross'?'✚':'🌈'} {cls}</span>
-            <div style={{width:60,height:14,background:C.bg,borderRadius:3,overflow:'hidden',border:`1px solid ${C.border}`}}>
-              <div style={{height:'100%',width:`${scores[i]}%`,background:i===maxClass?`linear-gradient(90deg,${C.accent},${C.accent3})`:C.dim,transition:'width .3s'}}/>
-            </div>
-            <span style={{fontSize:9,fontFamily:mono,color:i===maxClass?C.accent:C.muted,fontWeight:i===maxClass?800:400,width:28}}>{scores[i]}%</span>
+            <span style={{fontSize:9,fontFamily:mono,color:C.text,width:50,textAlign:'right'}}>{['😊','❤️','⭐','✚','🌈'][i]} {cls}</span>
+            <div style={{width:55,height:14,background:C.bg,borderRadius:3,overflow:'hidden',border:`1px solid ${C.border}`}}><div style={{height:'100%',width:`${scores[i]}%`,background:i===maxC?`linear-gradient(90deg,${C.accent},${C.accent3})`:C.dim,transition:'width .3s'}}/></div>
+            <span style={{fontSize:9,fontFamily:mono,color:i===maxC?C.accent:C.muted,fontWeight:i===maxC?800:400,width:28}}>{scores[i]}%</span>
           </div>)}
-          <div style={{fontSize:11,fontFamily:mono,color:C.accent,fontWeight:800,marginTop:6,padding:'3px 8px',background:`${C.accent}22`,borderRadius:6,border:`1px solid ${C.accent}44`}}>
-            예측: {classLabels[maxClass]} {['😊','❤️','⭐','✚','🌈'][maxClass]}
-          </div>
+          <div style={{fontSize:10,fontFamily:mono,color:C.accent,fontWeight:800,marginTop:6,padding:'3px 8px',background:`${C.accent}22`,borderRadius:6}}>예측: {classLabels[maxC]} {['😊','❤️','⭐','✚','🌈'][maxC]}</div>
         </div>
       </div>
     </div>
-
-    {/* Stats */}
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
-      <InfoBox icon="📐" title="크기 변화">{imgSize}×{imgSize} → Conv: {convSz}×{convSz} → Pool: {poolSz}×{poolSz} → Flat: {flatLen}</InfoBox>
-      <InfoBox icon="⚙️" title="가중치 수">Conv: 3×3×3={27} + FC: {flatLen}×{classLabels.length}={flatLen*classLabels.length} = <span style={{color:C.accent,fontWeight:800}}>{27+flatLen*classLabels.length}개</span></InfoBox>
-      <InfoBox icon="🎯" title="체험 팁">다른 이미지를 선택하여 <span style={{color:C.accent}}>분류 확률이 바뀌는 것</span>을 확인하세요!</InfoBox>
+      <InfoBox icon="📐" title="크기 변화">{imgSize}→Conv:{convSz}→Pool:{poolSz}→Flat:{flatLen}</InfoBox>
+      <InfoBox icon="⚙️" title="가중치">Conv: {27} + FC: {flatLen*5} = <span style={{color:C.accent,fontWeight:800}}>{27+flatLen*5}개</span></InfoBox>
+      <InfoBox icon="🎯" title="팁"><span style={{color:C.accent}}>다른 이미지를 선택</span>하여 분류 결과를 비교하세요!</InfoBox>
     </div>
   </div>
 }
 
-/* ══════════════════════════════════════════════
-   MAIN APP
-   ══════════════════════════════════════════════ */
+/* ═══ MAIN ═══ */
 const tabs=[{id:'conv',label:'🔄 합성곱',color:C.accent},{id:'pool',label:'🔲 풀링',color:'#00b8d4'},{id:'relu',label:'⚡ ReLU',color:C.relu},{id:'feat',label:'🧠 특징추출',color:C.accent3},{id:'fc',label:'🏗️ 분류',color:C.accent4}];
-
 function App(){
   const [tab,setTab]=useState('conv');
   return <div style={{padding:'16px 10px'}}><div style={{maxWidth:960,margin:'0 auto'}}>
@@ -553,7 +370,7 @@ function App(){
       <p style={{color:C.muted,fontSize:12,marginTop:4,fontFamily:mono}}>합성곱 · 풀링 · 활성화 함수 · 특징 추출 · 분류를 직접 체험하세요</p>
     </div>
     <div style={{display:'flex',gap:3,marginBottom:18,background:C.card,borderRadius:10,padding:4,border:`1px solid ${C.border}`}}>
-      {tabs.map((t,i)=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:'10px 2px',borderRadius:8,border:'none',fontFamily:mono,fontSize:10,fontWeight:700,background:tab===t.id?`${t.color}22`:'transparent',color:tab===t.id?t.color:C.muted,borderBottom:tab===t.id?`2px solid ${t.color}`:'2px solid transparent'}}>{t.label}</button>)}
+      {tabs.map(t=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:'10px 2px',borderRadius:8,border:'none',fontFamily:mono,fontSize:10,fontWeight:700,background:tab===t.id?`${t.color}22`:'transparent',color:tab===t.id?t.color:C.muted,borderBottom:tab===t.id?`2px solid ${t.color}`:'2px solid transparent'}}>{t.label}</button>)}
     </div>
     <div className="fade-in" key={tab}>
       {tab==='conv'&&<ConvolutionTab/>}{tab==='pool'&&<PoolingTab/>}{tab==='relu'&&<ReluTab/>}{tab==='feat'&&<FeatureMapTab/>}{tab==='fc'&&<FlattenFCTab/>}
@@ -561,7 +378,7 @@ function App(){
     <div className="card" style={{marginTop:18}}>
       <div style={{fontSize:11,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:6}}>📋 CNN 파이프라인 (클릭하여 이동)</div>
       <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:3,flexWrap:'wrap',fontFamily:mono,fontSize:10}}>
-        {[{l:'입력',c:C.text,t:null},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Flatten',c:C.accent3,t:'fc'},{l:'FC',c:C.accent4,t:'fc'},{l:'Softmax',c:C.accent2,t:'fc'},{l:'출력',c:C.text,t:null}].map((s,i)=><span key={i} style={{display:'flex',alignItems:'center',gap:3}}>
+        {[{l:'입력',c:C.text},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Flatten',c:C.accent3,t:'fc'},{l:'FC',c:C.accent4,t:'fc'},{l:'Softmax',c:C.accent2,t:'fc'},{l:'출력',c:C.text}].map((s,i)=><span key={i} style={{display:'flex',alignItems:'center',gap:3}}>
           {i>0&&<span style={{color:C.dim}}>→</span>}
           <span onClick={()=>s.t&&setTab(s.t)} style={{padding:'3px 6px',borderRadius:4,background:`${s.c}18`,border:`1px solid ${s.c}44`,color:s.c,fontWeight:700,cursor:s.t?'pointer':'default'}}>{s.l}</span>
         </span>)}
@@ -569,7 +386,6 @@ function App(){
     </div>
   </div></div>
 }
-
 ReactDOM.render(<App/>,document.getElementById('root'));
 </script>
 </body>
