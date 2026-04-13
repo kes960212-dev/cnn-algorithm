@@ -1,576 +1,797 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CNN 알고리즘 종합 체험 시뮬레이터</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700;800&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
-<style>
-*{margin:0;padding:0;box-sizing:border-box}
-:root{--bg:#060b18;--card:#0d1425;--border:#1a2444;--accent:#00e5c7;--accent2:#ff5577;--accent3:#ffd166;--accent4:#a78bfa;--text:#dde4f0;--muted:#5a6d8e;--dim:#2a3a5e;--relu:#22c55e;--reluNeg:#ef4444;--mono:'JetBrains Mono',monospace;--display:'Outfit',sans-serif}
-body{background:var(--bg);color:var(--text);font-family:'Segoe UI',system-ui,sans-serif;min-height:100vh}
-input[type=range]{accent-color:var(--accent);height:6px;width:100%}
-button{cursor:pointer;transition:all .15s ease}button:hover{filter:brightness(1.15)}
-.card{background:var(--card);border-radius:12px;padding:16px;border:1px solid var(--border)}
-.info-box{padding:10px;background:var(--bg);border-radius:8px;border:1px solid var(--border)}
-::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--dim);border-radius:3px}
-@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.fade-in{animation:fadeIn .4s ease forwards}
-</style>
-</head>
-<body>
-<div id="root"></div>
-<script type="text/babel">
-const {useState,useMemo,useEffect,useRef}=React;
-const C={bg:'#060b18',card:'#0d1425',border:'#1a2444',accent:'#00e5c7',accent2:'#ff5577',accent3:'#ffd166',accent4:'#a78bfa',text:'#dde4f0',muted:'#5a6d8e',dim:'#2a3a5e',kernelBorder:'#00e5c7',relu:'#22c55e',reluNeg:'#ef4444'};
-const mono="'JetBrains Mono',monospace",outfit="'Outfit',sans-serif";
+import React, { useState, useEffect } from 'react';
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { 
+  getFirestore, doc, setDoc, onSnapshot, updateDoc, 
+  collection, getDoc, getDocs 
+} from 'firebase/firestore';
+import { 
+  LucideSearch, LucideBrainCircuit, LucideSend, LucideUsers, 
+  LucideRefreshCcw, LucideLayoutDashboard, LucideLock, 
+  LucidePlay, LucideUserPlus, LucideCheck, LucideChevronUp, 
+  LucideChevronDown, LucideChevronLeft, LucideChevronRight, LucideFileText
+} from 'lucide-react';
 
-/* ─── Utils ─── */
-function seededRand(seed){let s=seed;return()=>{s=(s*16807+7)%2147483647;return s}}
-function genMatrixPos(r,c,seed){const rng=seededRand(seed);return Array.from({length:r},()=>Array.from({length:c},()=>rng()%256))}
-function genMatrixSigned(r,c,seed){const rng=seededRand(seed);return Array.from({length:r},()=>Array.from({length:c},()=>(rng()%511)-255))}
+/**
+ * [필독] 
+ * 1. 미리보기 환경에서는 아래 코드가 자동으로 시스템의 Firebase를 사용합니다.
+ * 2. 나중에 GitHub Pages에 직접 배포하실 때는 'firebaseConfig' 부분에 
+ * 본인의 Firebase 콘솔에서 복사한 실제 키값들을 붙여넣으세요.
+ */
+const firebaseConfig = {
+  apiKey: "AIzaSyBcci9JE7Py_WfxoJ-KKAXT8ckcCsjxNII",
+  authDomain: "cnn-algorithm.firebaseapp.com",
+  databaseURL: "https://cnn-algorithm-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "cnn-algorithm",
+  storageBucket: "cnn-algorithm.firebasestorage.app",
+  messagingSenderId: "972364178713",
+  appId: "1:972364178713:web:57c0dee3ec67449c73d188",
+  measurementId: "G-7BCEGXC3JP"
+};
 
-function generateImage(size,pattern){
-  const img=Array.from({length:size},()=>Array.from({length:size},()=>[30,30,50]));
-  const cx=size/2,cy=size/2,r=size*.38;
-  if(pattern==='smiley'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const dx=x-cx+.5,dy=y-cy+.5,d=Math.sqrt(dx*dx+dy*dy);if(d<r)img[y][x]=[255,210,80];if(d<r&&d>r*.85)img[y][x]=[180,140,40];const eR=Math.max(1,size*.08),eLx=cx-size*.15,eRx=cx+size*.15,eY=cy-size*.1;if(Math.sqrt((x-eLx)**2+(y-eY)**2)<eR)img[y][x]=[40,30,20];if(Math.sqrt((x-eRx)**2+(y-eY)**2)<eR)img[y][x]=[40,30,20];const mD=Math.sqrt(dx*dx+(dy+size*.05)**2);if(mD<r*.55&&mD>r*.4&&dy>size*.05)img[y][x]=[140,80,30]}}
-  else if(pattern==='heart'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=(x-cx+.5)/(size*.35),ny=(y-cy+.5)/(size*.35)-.2;if((nx*nx+ny*ny-1)**3-nx*nx*ny*ny*ny<0){const g=1-Math.sqrt(nx*nx+ny*ny)*.4;img[y][x]=[Math.round(220*g+35),Math.round(40*g+15),Math.round(60*g+30)]}}}
-  else if(pattern==='star'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=(x-cx+.5)/r,ny=(y-cy+.5)/r,a=Math.atan2(ny,nx),d=Math.sqrt(nx*nx+ny*ny),sR=.5+.5*Math.cos(5*a);if(d<sR){const g=1-d/sR;img[y][x]=[Math.round(80+g*175),Math.round(180+g*75),Math.round(50+g*200)]}}}
-  else if(pattern==='cross'){for(let y=0;y<size;y++)for(let x=0;x<size;x++){const nx=Math.abs(x-cx+.5),ny=Math.abs(y-cy+.5);if(nx<size*.12||ny<size*.12)img[y][x]=[60,140,255];else img[y][x]=[20,30,60]}}
-  else{for(let y=0;y<size;y++)for(let x=0;x<size;x++){const tx=x/size,ty=y/size;img[y][x]=[Math.round(tx*200+30),Math.round(ty*150+50),Math.round((1-tx)*200+55)]}}
-  return img;
-}
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'cnn-detective-v1';
 
-function imgToGray(img){return img.map(r=>r.map(p=>Math.round(.299*p[0]+.587*p[1]+.114*p[2])))}
+// --- Constants ---
+const FILTERS = {
+  horizontal: [[0, 0, 0], [1, 1, 1], [0, 0, 0]],
+  vertical: [[0, 1, 0], [0, 1, 0], [0, 1, 0]]
+};
 
-function convGray(gray,kernel){
-  const kS=kernel.length,h=gray.length,w=gray[0].length,oh=h-kS+1,ow=w-kS+1,out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let s=0;for(let ki=0;ki<kS;ki++)for(let kj=0;kj<kS;kj++)s+=gray[i+ki][j+kj]*kernel[ki][kj];row.push(s)}out.push(row)}return out;
-}
+const ROLE_LIST = ['그림 대장', '가로 탐정', '세로 탐정', '정답 대장'];
 
-function reluMap(m){return m.map(r=>r.map(v=>Math.max(0,v)))}
+const ROLE_INFO = {
+    '그림 대장': {
+        desc: '비밀 패턴 설계자',
+        manual: ['먼저 어떤 종류의 글자를 그릴지 고르세요.', '주어진 보기 중에서 모양을 선택하세요.', '선택한 모양을 5x5 격자에 그리고 출제하세요!']
+    },
+    '가로 탐정': {
+        desc: '가로 특징 추출 요원',
+        manual: ['그림 위에 초록색 돋보기를 올리세요.', '왼쪽 위부터 차례대로 스캔하세요.', '겹치는 칸의 개수를 계산해 점수표를 채우세요.']
+    },
+    '세로 탐정': {
+        desc: '세로 특징 추출 요원',
+        manual: ['그림 위에 빨간색 돋보기를 올리세요.', '왼쪽 위부터 차례대로 스캔하세요.', '겹치는 칸의 개수를 계산해 점수표를 채우세요.']
+    },
+    '정답 대장': {
+        desc: '데이터 통합 추론가',
+        manual: ['두 탐정의 수사 결과 보고서를 받으세요.', '점수가 높은 위치를 연결해 모양을 상상하세요.', '최종 범인(그림)을 맞혀보세요.']
+    }
+};
 
-function poolMap(m,ks,mode){
-  const h=m.length,w=m[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){const vals=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++)vals.push(m[i*ks+ki][j*ks+kj]);
-  row.push(mode==='max'?Math.max(...vals):vals.reduce((a,b)=>a+b)/vals.length)}out.push(row)}return out;
-}
+const STAGES = {
+  LOBBY: 'lobby',
+  DRAWING: 'drawing',
+  SCANNING: 'scanning',
+  GUESSING: 'guessing',
+  FINISHED: 'finished'
+};
 
-function poolImage(img,ks,mode){
-  const h=img.length,w=img[0].length,oh=Math.floor(h/ks),ow=Math.floor(w/ks),out=[];
-  for(let i=0;i<oh;i++){const row=[];for(let j=0;j<ow;j++){let rs=[],gs=[],bs=[];for(let ki=0;ki<ks;ki++)for(let kj=0;kj<ks;kj++){const p=img[i*ks+ki][j*ks+kj];rs.push(p[0]);gs.push(p[1]);bs.push(p[2])}
-  if(mode==='max')row.push([Math.max(...rs),Math.max(...gs),Math.max(...bs)]);
-  else row.push([Math.round(rs.reduce((a,b)=>a+b)/rs.length),Math.round(gs.reduce((a,b)=>a+b)/gs.length),Math.round(bs.reduce((a,b)=>a+b)/bs.length)])}out.push(row)}return out;
-}
+const EASY_PATTERNS = [
+    { name: 'ㄱ', category: '한글', data: [1,1,1,1,1, 0,0,0,0,1, 0,0,0,0,1, 0,0,0,0,1, 0,0,0,0,1] },
+    { name: 'ㄴ', category: '한글', data: [1,0,0,0,0, 1,0,0,0,0, 1,0,0,0,0, 1,0,0,0,0, 1,1,1,1,1] },
+    { name: 'ㅁ', category: '한글', data: [1,1,1,1,1, 1,0,0,0,1, 1,0,0,0,1, 1,0,0,0,1, 1,1,1,1,1] },
+    { name: 'L', category: '알파벳', data: [1,0,0,0,0, 1,0,0,0,0, 1,0,0,0,0, 1,0,0,0,0, 1,1,1,1,1] },
+    { name: 'T', category: '알파벳', data: [1,1,1,1,1, 0,0,1,0,0, 0,0,1,0,0, 0,0,1,0,0, 0,0,1,0,0] },
+    { name: '7', category: '숫자', data: [1,1,1,1,1, 0,0,0,0,1, 0,0,0,1,0, 0,0,1,0,0, 0,0,1,0,0] }
+];
 
-function mapToPixels(m,colorFn){
-  const mx=Math.max(...m.flat().map(Math.abs),1);
-  return m.map(r=>r.map(v=>colorFn?colorFn(v,mx):[Math.round(((v/mx)+1)/2*255),Math.round(((v/mx)+1)/2*255),Math.round(((v/mx)+1)/2*255)]));
-}
+export default function App() {
+  const [user, setUser] = useState(null);
+  const [view, setView] = useState('main'); 
+  const [lessonCode, setLessonCode] = useState('');
+  const [groupId, setGroupId] = useState(null);
+  const [lessonData, setLessonData] = useState(null);
+  const [groupData, setGroupData] = useState(null);
 
-/* ─── Shared Components ─── */
-function Slider({label,value,onChange,min,max,desc}){
-  return <div style={{flex:1,minWidth:140}}><div style={{display:'flex',justifyContent:'space-between',marginBottom:2}}><span style={{fontSize:11,color:C.muted,fontFamily:mono}}>{label}</span><span style={{fontSize:13,color:C.accent,fontWeight:700,fontFamily:mono}}>{value}</span></div><input type="range" min={min} max={max} value={value} onChange={e=>onChange(+e.target.value)}/>{desc&&<div style={{fontSize:10,color:C.dim,marginTop:2,fontFamily:mono}}>{desc}</div>}</div>
-}
-function InfoBox({icon,title,children}){return <div className="info-box"><div style={{color:C.muted,marginBottom:4,fontSize:11,fontFamily:mono}}>{icon} {title}</div><div style={{fontSize:12,fontFamily:mono,lineHeight:1.6}}>{children}</div></div>}
-function SectionTitle({icon,title,sub}){return <div style={{marginBottom:14}}><h2 style={{fontFamily:outfit,fontWeight:800,fontSize:20,color:C.text}}>{icon} {title}</h2><p style={{color:C.muted,fontSize:12,marginTop:4,fontFamily:mono}}>{sub}</p></div>}
-function Tip({color,children}){return <div style={{background:`${color||C.accent4}15`,borderRadius:8,padding:12,border:`1px solid ${color||C.accent4}33`,fontFamily:mono,fontSize:12,lineHeight:1.8,marginBottom:14,color:C.text}}>{children}</div>}
-function PixelCanvas({img,pixelSize,label,borderColor,style:extraStyle}){
-  const h=img.length,w=img[0].length;
-  return <div style={{textAlign:'center',...(extraStyle||{})}}>
-    {label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}
-    <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:`0 4px 20px rgba(0,0,0,.4)`}}>
-      {img.flatMap((row,ri)=>row.map((px,ci)=><div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${px[0]},${px[1]},${px[2]})`}}/>))}
-    </div>
-    <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div>
-  </div>
-}
-function GrayCanvas({data,pixelSize,label,borderColor,colorFn}){
-  const mx=Math.max(...data.flat().map(Math.abs),1);
-  const h=data.length,w=data[0].length;
-  return <div style={{textAlign:'center'}}>
-    {label&&<div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{label}</div>}
-    <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${w},${pixelSize}px)`,gap:0,borderRadius:6,overflow:'hidden',border:`2px solid ${borderColor||C.border}`,boxShadow:`0 2px 12px rgba(0,0,0,.3)`}}>
-      {data.flatMap((row,ri)=>row.map((v,ci)=>{
-        let r,g,b;
-        if(colorFn){[r,g,b]=colorFn(v,mx)}
-        else{const n=Math.round(((v/mx)+1)/2*255);r=g=b=n}
-        return <div key={ri+'-'+ci} style={{width:pixelSize,height:pixelSize,background:`rgb(${r},${g},${b})`}}/>
-      }))}
-    </div>
-    <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginTop:3}}>{h}×{w}</div>
-  </div>
-}
+  // --- Auth Setup (Rule 3 준수) ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (err) {
+        console.error("Auth Error", err);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
 
-/* ══════════════════════════════════════════════
-   TAB 1: CONVOLUTION
-   ══════════════════════════════════════════════ */
-function ConvolutionTab(){
-  const [inputSize,setInputSize]=useState(6);const [kernelSize,setKernelSize]=useState(3);const [stride,setStride]=useState(1);const [padding,setPadding]=useState(0);const [seed,setSeed]=useState(33);const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);
-  const stepRef=useRef(0);const timerRef=useRef(null);
-  const paddedSize=inputSize+2*padding;const outSize=Math.max(1,Math.floor((paddedSize-kernelSize)/stride)+1);const totalSteps=outSize*outSize;const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
-  const inputMat=useMemo(()=>genMatrixPos(inputSize,inputSize,seed),[inputSize,seed]);
-  const kernelMat=useMemo(()=>{const p=[[[-1,-1,-1],[0,0,0],[1,1,1]],[[-1,0,1],[-1,0,1],[-1,0,1]],[[0,-1,0],[-1,5,-1],[0,-1,0]]];if(kernelSize===2)return[[1,1],[1,1]];if(kernelSize===3)return p[seed%3];return Array.from({length:kernelSize},(_,i)=>Array.from({length:kernelSize},(_,j)=>i===Math.floor(kernelSize/2)&&j===Math.floor(kernelSize/2)?kernelSize*kernelSize-1:-1))},[kernelSize,seed]);
-  const paddedMat=useMemo(()=>{const m=Array.from({length:paddedSize},()=>Array(paddedSize).fill(0));for(let i=0;i<inputSize;i++)for(let j=0;j<inputSize;j++)m[i+padding][j+padding]=inputMat[i][j];return m},[inputMat,padding,paddedSize,inputSize]);
-  const convResult=useMemo(()=>{const out=[];for(let i=0;i<outSize;i++){const row=[];for(let j=0;j<outSize;j++){let s=0;for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++)s+=paddedMat[i*stride+ki][j*stride+kj]*kernelMat[ki][kj];row.push(s)}out.push(row)}return out},[paddedMat,kernelMat,outSize,kernelSize,stride]);
-  const syncStep=s=>{setStep(s);stepRef.current=s};
-  function stopTimer(){if(timerRef.current!==null){clearInterval(timerRef.current);timerRef.current=null}}
-  function startTimer(){stopTimer();timerRef.current=setInterval(()=>{if(stepRef.current>=totalStepsRef.current-1){stopTimer();setPlaying(false);return}const n=stepRef.current+1;stepRef.current=n;setStep(n)},500)}
-  function handlePlay(){if(playing){stopTimer();setPlaying(false)}else{if(stepRef.current>=totalSteps-1)syncStep(0);setPlaying(true);startTimer()}}
-  useEffect(()=>{syncStep(0);stopTimer();setPlaying(false)},[inputSize,kernelSize,stride,padding,seed]);useEffect(()=>()=>stopTimer(),[]);
-  const curR=Math.floor(step/outSize),curC=step%outSize,kSR=curR*stride,kSC=curC*stride;
-  const products=[];let currentSum=0;for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++){const v=paddedMat[kSR+ki][kSC+kj],w=kernelMat[ki][kj];products.push({v,w,p:v*w});currentSum+=v*w}
-  const cellSz=paddedSize>10?24:paddedSize>7?30:36,outCellSz=outSize>6?28:38;
+  // --- Lesson Data Sync ---
+  useEffect(() => {
+    if (!user || !lessonCode || view === 'main') return;
+    const lessonRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonCode);
+    const unsubscribe = onSnapshot(lessonRef, (snap) => {
+      if (snap.exists()) setLessonData(snap.data());
+    }, (err) => console.error("Lesson Snapshot error:", err));
+    return () => unsubscribe();
+  }, [user, lessonCode, view]);
 
-  return <div>
-    <SectionTitle icon="🔄" title="합성곱(Convolution) 연산" sub="커널이 입력 위를 슬라이딩하며 특징을 추출하는 핵심 연산을 체험하세요"/>
-    <Tip color={C.accent}><span style={{color:C.accent,fontWeight:800}}>💡 합성곱이란?</span><br/>커널이 입력 위를 <span style={{color:C.accent3}}>슬라이딩</span>하며 <span style={{color:C.accent}}>element-wise 곱셈 후 합산</span>하여 피처맵을 만듭니다. 스트라이드·패딩으로 출력 크기를 조절할 수 있습니다.</Tip>
-    <div className="card" style={{marginBottom:14}}><div style={{display:'flex',flexWrap:'wrap',gap:14}}>
-      <Slider label="입력 크기" value={inputSize} onChange={setInputSize} min={4} max={10} desc={`${inputSize}×${inputSize}`}/>
-      <Slider label="커널 크기" value={kernelSize} onChange={setKernelSize} min={2} max={5}/>
-      <Slider label="스트라이드" value={stride} onChange={setStride} min={1} max={3}/>
-      <Slider label="패딩" value={padding} onChange={setPadding} min={0} max={2}/>
-      <button onClick={()=>setSeed(s=>s+1)} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>⟳ 새 커널</button>
-    </div></div>
-    <div className="card" style={{marginBottom:14}}><div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))',gap:8}}>
-      <InfoBox icon="📐" title="출력 크기"><span style={{color:C.accent3}}>⌊({inputSize}+2×{padding}-{kernelSize})/{stride}⌋+1 = </span><span style={{color:C.accent,fontWeight:800,fontSize:16}}>{outSize}</span></InfoBox>
-      <InfoBox icon="⚙️" title="연산량">곱셈 {outSize*outSize*kernelSize*kernelSize}회</InfoBox>
-    </div></div>
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>◀</button>
-        <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸ 정지':'▶ 재생'}</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>▶</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);syncStep(0)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.muted,fontFamily:mono,fontSize:11}}>↺</button>
-        <div style={{marginLeft:'auto',fontFamily:mono,fontSize:11,color:C.muted}}>스텝 <span style={{color:C.accent,fontWeight:700}}>{step+1}</span>/{totalSteps}</div>
-      </div>
-      <div style={{height:3,background:C.dim,borderRadius:2,marginBottom:14,overflow:'hidden'}}><div style={{height:'100%',width:`${((step+1)/totalSteps)*100}%`,background:`linear-gradient(90deg,${C.accent},${C.accent3})`,borderRadius:2,transition:'width .3s'}}/></div>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:12,flexWrap:'wrap'}}>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 {paddedSize}×{paddedSize}</div>
-          <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${paddedSize},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>
-            {paddedMat.flatMap((row,ri)=>row.map((val,ci)=>{const inK=ri>=kSR&&ri<kSR+kernelSize&&ci>=kSC&&ci<kSC+kernelSize;const isPad=ri<padding||ri>=padding+inputSize||ci<padding||ci>=padding+inputSize;const t=val/255;return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<28?7:9,fontFamily:mono,color:inK?'#fff':isPad?C.dim:(t>.55?'#0a0e1a':C.text),fontWeight:inK?800:400,background:inK?`rgba(0,229,199,${.35+t*.45})`:isPad?'rgba(90,109,142,.15)':`rgba(${14+t*40},${22+t*60},${50+t*100},1)`,borderRadius:2,border:inK?`2px solid ${C.kernelBorder}`:'1px solid transparent',transition:'all .15s'}}>{val}</div>}))}
-          </div></div>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:170,padding:'8px 0'}}>
-          <div style={{fontSize:16,color:C.accent}}>⟹</div>
-          <div style={{background:C.bg,borderRadius:8,padding:10,border:`1px solid ${C.kernelBorder}33`,width:'100%',maxWidth:200,margin:'4px 0'}}>
-            <div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:6,textAlign:'center',fontWeight:700}}>원소별 곱셈</div>
-            <div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:3,marginBottom:8}}>
-              {products.map((p,i)=><div key={i} style={{textAlign:'center',fontSize:9,fontFamily:mono,lineHeight:1.3}}>
-                <div style={{color:C.accent}}>{p.v}</div><div style={{color:C.muted}}>×</div><div style={{color:C.accent3}}>{p.w}</div>
-                <div style={{borderTop:`1px solid ${C.dim}`,marginTop:2,paddingTop:2,color:p.p>0?C.relu:p.p<0?C.reluNeg:C.muted,fontWeight:700}}>{p.p}</div>
-              </div>)}
-            </div>
-            <div style={{textAlign:'center',fontFamily:mono,fontSize:10,color:C.muted,borderTop:`1px solid ${C.dim}`,paddingTop:4}}>합 = <span style={{color:C.accent,fontWeight:800,fontSize:14}}>{currentSum}</span></div>
-          </div>
-          <div style={{fontSize:16,color:C.accent}}>⟹</div></div>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>출력 {outSize}×{outSize}</div>
-          <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${outSize},${outCellSz}px)`,gap:2,borderRadius:6,padding:2,background:C.border}}>
-            {convResult.flatMap((row,ri)=>row.map((val,ci)=>{const idx=ri*outSize+ci,done=idx<=step,cur=idx===step;return <div key={ri+'-'+ci} style={{width:outCellSz,height:outCellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:outCellSz<32?8:10,fontFamily:mono,fontWeight:700,borderRadius:3,background:cur?C.accent:done?`rgba(${20+Math.abs(val)/10},${40+Math.abs(val)/8},${80+Math.abs(val)/6},1)`:C.card,color:cur?C.bg:done?C.accent:C.dim,border:cur?`2px solid ${C.accent3}`:`1px solid ${done?C.accent+'33':C.border}`,transform:cur?'scale(1.1)':'scale(1)',transition:'all .15s'}}>{done?val:'?'}</div>}))}
-          </div></div>
-      </div>
-    </div>
-    <div className="card" style={{fontFamily:mono,fontSize:11,lineHeight:1.8}}><span style={{color:C.accent3,fontWeight:800}}>📝</span> 위치 ({kSR},{kSC}) → 곱합 = <span style={{color:C.accent,fontWeight:800}}>{currentSum}</span> → 출력({curR},{curC})</div>
-  </div>
-}
+  // --- Group Data Sync ---
+  useEffect(() => {
+    if (!user || !lessonCode || !groupId || view !== 'student_game') return;
+    const groupRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonCode, 'groups', groupId);
+    const unsubscribe = onSnapshot(groupRef, (snap) => {
+      if (snap.exists()) setGroupData(snap.data());
+    }, (err) => console.error("Group Snapshot error:", err));
+    return () => unsubscribe();
+  }, [user, lessonCode, groupId, view]);
 
-/* ══════════════════════════════════════════════
-   TAB 2: POOLING
-   ══════════════════════════════════════════════ */
-function PoolingTab(){
-  const [viewMode,setViewMode]=useState('both');const [inputSize,setInputSize]=useState(8);const [kernelSize,setKernelSize]=useState(2);const [poolMode,setPoolMode]=useState('max');const [numFilters,setNumFilters]=useState(1);const [seed,setSeed]=useState(42);const [activeFilter,setActiveFilter]=useState(0);const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);const [hovered,setHovered]=useState(null);const [imageSize,setImageSize]=useState(16);const [pattern,setPattern]=useState('smiley');
-  const stepRef=useRef(0);const timerRef=useRef(null);const outSize=Math.floor(inputSize/kernelSize);const totalSteps=outSize*outSize;const totalStepsRef=useRef(totalSteps);totalStepsRef.current=totalSteps;
-  const matrices=useMemo(()=>Array.from({length:numFilters},(_,i)=>genMatrixPos(inputSize,inputSize,seed+i*1000)),[inputSize,numFilters,seed]);
-  const allPooled=useMemo(()=>matrices.map(mat=>{const res=[];for(let i=0;i<outSize;i++){const row=[];for(let j=0;j<outSize;j++){const vals=[];for(let ki=0;ki<kernelSize;ki++)for(let kj=0;kj<kernelSize;kj++)vals.push(mat[i*kernelSize+ki][j*kernelSize+kj]);row.push({result:poolMode==='max'?Math.max(...vals):Math.round(vals.reduce((a,b)=>a+b)/vals.length),vals})}res.push(row)}return res}),[matrices,kernelSize,poolMode,outSize]);
-  const syncStep=s=>{setStep(s);stepRef.current=s};function stopTimer(){if(timerRef.current!==null){clearInterval(timerRef.current);timerRef.current=null}}function startTimer(){stopTimer();timerRef.current=setInterval(()=>{if(stepRef.current>=totalStepsRef.current-1){stopTimer();setPlaying(false);return}const n=stepRef.current+1;stepRef.current=n;setStep(n)},600)}function handlePlay(){if(playing){stopTimer();setPlaying(false)}else{if(stepRef.current>=totalSteps-1)syncStep(0);setPlaying(true);startTimer()}}
-  useEffect(()=>{syncStep(0);stopTimer();setPlaying(false)},[inputSize,kernelSize,poolMode,numFilters,seed,activeFilter]);useEffect(()=>()=>stopTimer(),[]);
-  const curR=Math.floor(step/outSize),curC=step%outSize;const kR=hovered?hovered.r*kernelSize:curR*kernelSize,kC=hovered?hovered.c*kernelSize:curC*kernelSize;const dR=hovered?hovered.r:curR,dC=hovered?hovered.c:curC;
-  const mat=matrices[activeFilter];const pd=allPooled[activeFilter];const cVals=pd[dR]?.[dC]?.vals||[];const cResult=pd[dR]?.[dC]?.result??0;const pooledSimple=pd.map(r=>r.map(c=>c.result));
-  const cellSz=inputSize>12?22:inputSize>8?26:inputSize>6?30:34;const outCellSz=outSize>6?26:36;
-  const srcImg=useMemo(()=>generateImage(imageSize,pattern),[imageSize,pattern]);
-  const pooledImgs=useMemo(()=>{const r=[];let cur=srcImg;for(let k=0;k<4;k++){const p=poolImage(cur,kernelSize,poolMode);if(p.length<1||p[0].length<1)break;r.push(p);cur=p}return r},[srcImg,kernelSize,poolMode]);
-  const imgPxSz=imageSize>24?8:imageSize>16?10:imageSize>10?14:18;
-  const showN=viewMode==='numeric'||viewMode==='both',showI=viewMode==='image'||viewMode==='both';
+  const createLesson = async (code, groupsConfig) => {
+    if (!user) return;
+    try {
+        const lessonRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', code);
+        await setDoc(lessonRef, { code, groupCount: groupsConfig.length, createdAt: Date.now() });
+        for (let i = 0; i < groupsConfig.length; i++) {
+            const gId = `G${i+1}`;
+            const gRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', code, 'groups', gId);
+            await setDoc(gRef, {
+                id: gId, stage: STAGES.LOBBY, round: 1, imageData: Array(25).fill(0),
+                horizScores: Array(9).fill(0), vertScores: Array(9).fill(0),
+                members: {}, capacity: groupsConfig[i], score: 0,
+                horizDone: false, vertDone: false
+            });
+        }
+        setLessonCode(code); setView('teacher_dash'); 
+    } catch (e) { alert("오류 발생! Firestore 규칙을 확인하세요."); console.error(e); }
+  };
 
-  return <div>
-    <SectionTitle icon="🔲" title="풀링(Pooling) 체험" sub="피처맵을 축소하는 풀링 과정을 숫자와 이미지로 체험하세요"/>
-    <div style={{display:'flex',gap:4,marginBottom:14}}>{[['both','🔢+🖼️ 모두'],['numeric','🔢 수치'],['image','🖼️ 이미지']].map(([k,l])=><button key={k} onClick={()=>setViewMode(k)} style={{flex:1,padding:'8px 4px',borderRadius:8,border:`1px solid ${viewMode===k?C.accent:C.border}`,background:viewMode===k?`${C.accent}22`:C.card,color:viewMode===k?C.accent:C.muted,fontFamily:mono,fontSize:11,fontWeight:700}}>{l}</button>)}</div>
-    <div className="card" style={{marginBottom:14}}><div style={{display:'flex',flexWrap:'wrap',gap:14}}>
-      {showN&&<Slider label="입력 크기" value={inputSize} onChange={setInputSize} min={4} max={16}/>}
-      <Slider label="커널 크기" value={kernelSize} onChange={setKernelSize} min={2} max={4}/>
-      {showN&&<Slider label="필터 수" value={numFilters} onChange={setNumFilters} min={1} max={6}/>}
-      {showI&&<Slider label="이미지 해상도" value={imageSize} onChange={setImageSize} min={8} max={32}/>}
-      <div style={{minWidth:100}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>방식</div><div style={{display:'flex',gap:4}}>{[['max','Max'],['avg','Avg']].map(([k,l])=><button key={k} onClick={()=>setPoolMode(k)} style={{flex:1,padding:'6px 0',borderRadius:6,border:'none',fontSize:12,fontWeight:700,fontFamily:mono,background:poolMode===k?C.accent:C.dim,color:poolMode===k?C.bg:C.muted}}>{l}</button>)}</div></div>
-      {showI&&<div style={{minWidth:130}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>패턴</div><div style={{display:'flex',gap:3}}>{[['smiley','😊'],['heart','❤️'],['star','⭐'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'5px',borderRadius:6,border:pattern===k?`1px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:14,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}</div></div>}
-    </div></div>
+  const joinGroup = async (code, gId, playerName) => {
+    if (!user) return;
+    const groupRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', code, 'groups', gId);
+    const snap = await getDoc(groupRef);
+    if (!snap.exists()) throw new Error("존재하지 않는 모둠입니다.");
+    
+    const data = snap.data();
+    const members = data.members || {};
+    const capacity = data.capacity || 4;
+    
+    let isRejoin = false;
+    let oldUid = null;
+    
+    for (const [key, val] of Object.entries(members)) {
+        if (val.name === playerName) {
+            isRejoin = true;
+            oldUid = key;
+            break;
+        }
+    }
 
-    {showI&&<div className="card" style={{marginBottom:14,borderColor:C.accent+'33'}}>
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent,marginBottom:10}}>🖼️ 이미지 풀링</div>
-      <div style={{display:'flex',alignItems:'center',gap:10,flexWrap:'wrap',justifyContent:'center',padding:'10px 0'}}>
-        <PixelCanvas img={srcImg} pixelSize={imgPxSz} label="원본" borderColor={C.accent3}/>
-        {pooledImgs.map((pI,idx)=>{const pS=pI.length;const su=Math.min(28,Math.max(4,Math.round(imgPxSz*Math.pow(kernelSize,idx+1)*.7)));return <div key={idx} style={{display:'flex',alignItems:'center',gap:8}}><div style={{display:'flex',flexDirection:'column',alignItems:'center',color:C.accent,fontFamily:mono,fontSize:10}}><span style={{fontSize:20}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.accent}33`}}>{poolMode==='max'?'Max':'Avg'} ÷{kernelSize}</span></div><PixelCanvas img={pI} pixelSize={su} label={`${idx+1}회 (${pS}×${pS})`} borderColor={idx===0?C.accent:C.accent2}/></div>})}
-      </div>
-      {pooledImgs.length>0&&<div style={{marginTop:10}}><div style={{fontSize:11,fontFamily:mono,color:C.accent3,fontWeight:700,marginBottom:8,textAlign:'center'}}>🔍 동일 크기 확대 비교</div><div style={{display:'flex',justifyContent:'center',gap:16,flexWrap:'wrap'}}>
-        {(()=>{const tv=Math.min(200,imgPxSz*imageSize);return <PixelCanvas img={srcImg} pixelSize={Math.max(2,Math.floor(tv/imageSize))} label={`원본 ${imageSize}×${imageSize}`} borderColor={C.accent3}/>})()}
-        {pooledImgs.map((pI,idx)=>{const pS=pI.length;const tv=Math.min(200,imgPxSz*imageSize);return <PixelCanvas key={idx} img={pI} pixelSize={Math.max(2,Math.floor(tv/pS))} label={`${idx+1}회 ${pS}×${pS}`} borderColor={idx===0?C.accent:C.accent2}/>})}
-      </div></div>}
-    </div>}
+    const newMembers = { ...members };
 
-    {showN&&<div className="card" style={{marginBottom:14}}>
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:10}}>🔢 수치 풀링</div>
-      {numFilters>1&&<div style={{display:'flex',gap:4,marginBottom:10}}>{Array.from({length:numFilters},(_,i)=><button key={i} onClick={()=>setActiveFilter(i)} style={{padding:'5px 12px',borderRadius:6,fontSize:11,fontWeight:700,fontFamily:mono,background:activeFilter===i?C.accent:C.card,color:activeFilter===i?C.bg:C.muted,border:`1px solid ${activeFilter===i?C.accent:C.border}`}}>#{i+1}</button>)}</div>}
-      <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:10,flexWrap:'wrap'}}>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step>0)syncStep(step-1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>◀</button>
-        <button onClick={handlePlay} style={{padding:'4px 12px',borderRadius:6,border:'none',background:playing?C.accent2:C.accent,color:C.bg,fontWeight:800,fontFamily:mono,fontSize:12,minWidth:80}}>{playing?'⏸':'▶'}</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);if(step<totalSteps-1)syncStep(step+1)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.text,fontFamily:mono,fontSize:13}}>▶</button>
-        <button onClick={()=>{stopTimer();setPlaying(false);syncStep(0)}} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.dim,color:C.muted,fontFamily:mono,fontSize:11}}>↺</button>
-        <button onClick={()=>setSeed(s=>s+7)} style={{padding:'4px 8px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700}}>⟳</button>
-        <span style={{marginLeft:'auto',fontFamily:mono,fontSize:11,color:C.muted}}>{step+1}/{totalSteps}</span>
-      </div>
-      <div style={{height:3,background:C.dim,borderRadius:2,marginBottom:12,overflow:'hidden'}}><div style={{height:'100%',width:`${((step+1)/totalSteps)*100}%`,background:`linear-gradient(90deg,${C.accent},${C.accent3})`,transition:'width .3s'}}/></div>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:12,flexWrap:'wrap'}}>
-        <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 {inputSize}×{inputSize}</div><div style={{display:'inline-grid',gridTemplateColumns:`repeat(${inputSize},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>{mat.flatMap((row,ri)=>row.map((val,ci)=>{const inK=ri>=kR&&ri<kR+kernelSize&&ci>=kC&&ci<kC+kernelSize;const t=val/255;return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<26?7:9,fontFamily:mono,color:inK?'#fff':(t>.55?'#0a0e1a':C.text),fontWeight:inK?800:400,background:inK?`rgba(0,229,199,${.35+t*.45})`:`rgba(${14+t*40},${22+t*60},${50+t*100},1)`,borderRadius:2,border:inK?`2px solid ${C.kernelBorder}`:'1px solid transparent',transition:'all .15s'}}>{val}</div>}))}</div></div>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',minWidth:120,padding:'8px 0'}}><div style={{fontSize:16,color:C.accent}}>⟹</div><div style={{background:C.bg,borderRadius:8,padding:8,border:`1px solid ${C.kernelBorder}33`,maxWidth:140,margin:'4px 0'}}><div style={{display:'grid',gridTemplateColumns:`repeat(${kernelSize},1fr)`,gap:2,marginBottom:4}}>{cVals.map((v,i)=>{const isM=poolMode==='max'&&v===cResult;return <div key={i} style={{padding:'3px 0',textAlign:'center',borderRadius:3,fontSize:10,fontFamily:mono,fontWeight:isM?800:400,background:isM?`${C.accent}33`:C.card,color:isM?C.accent:C.text,border:isM?`1px solid ${C.accent}`:`1px solid ${C.border}`}}>{v}</div>})}</div><div style={{fontSize:9,fontFamily:mono,color:C.muted,textAlign:'center'}}>{poolMode} → <span style={{color:C.accent,fontWeight:800,fontSize:12}}>{cResult}</span></div></div><div style={{fontSize:16,color:C.accent}}>⟹</div></div>
-        <div style={{textAlign:'center'}}><div style={{fontSize:10,color:C.muted,fontFamily:mono,marginBottom:4}}>출력 {outSize}×{outSize}</div><div style={{display:'inline-grid',gridTemplateColumns:`repeat(${outSize},${outCellSz}px)`,gap:2,borderRadius:6,padding:2,background:C.border}}>{pooledSimple.flatMap((row,ri)=>row.map((val,ci)=>{const idx=ri*outSize+ci,done=idx<=step,cur=idx===step,t=val/255;return <div key={ri+'-'+ci} onMouseEnter={()=>setHovered({r:ri,c:ci})} onMouseLeave={()=>setHovered(null)} style={{width:outCellSz,height:outCellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:outCellSz<30?9:11,fontFamily:mono,fontWeight:700,borderRadius:3,cursor:'pointer',background:cur?C.accent:done?`rgba(${20+t*50},${45+t*90},${80+t*130},1)`:C.card,color:cur?C.bg:done?C.accent:C.dim,border:cur?`2px solid ${C.accent3}`:`1px solid ${done?C.accent+'33':C.border}`,transform:cur?'scale(1.1)':'scale(1)',transition:'all .15s'}}>{done?val:'?'}</div>}))}</div></div>
-      </div>
-    </div>}
-  </div>
-}
+    if (isRejoin) {
+        const existingMember = newMembers[oldUid];
+        delete newMembers[oldUid];
+        newMembers[user.uid] = { ...existingMember, uid: user.uid };
+    } else {
+        if (Object.keys(newMembers).length >= capacity) {
+          throw new Error("이미 정원이 찬 모둠입니다.");
+        }
+        const usedIndices = Object.values(newMembers).map(m => m.baseIndex);
+        let freeIndex = 0;
+        while (usedIndices.includes(freeIndex)) freeIndex++;
+        
+        newMembers[user.uid] = { uid: user.uid, baseIndex: freeIndex, name: playerName };
+    }
 
-/* ══════════════════════════════════════════════
-   TAB 3: ReLU
-   ══════════════════════════════════════════════ */
-function ReluTab(){
-  const [size,setSize]=useState(6);const [seed,setSeed]=useState(99);const [showAnim,setShowAnim]=useState(false);const [animStep,setAnimStep]=useState(0);const animRef=useRef(null);
-  const matrix=useMemo(()=>genMatrixSigned(size,size,seed),[size,seed]);const reluMatrix=useMemo(()=>matrix.map(r=>r.map(v=>Math.max(0,v))),[matrix]);const negCount=matrix.flat().filter(v=>v<0).length;const total=size*size;const cellSz=size>8?28:size>6?34:40;
-  function startAnim(){setAnimStep(0);setShowAnim(true);let s=0;if(animRef.current)clearInterval(animRef.current);animRef.current=setInterval(()=>{s++;if(s>=total){clearInterval(animRef.current);animRef.current=null}setAnimStep(s)},80)}
-  useEffect(()=>{setShowAnim(false);setAnimStep(0);if(animRef.current){clearInterval(animRef.current);animRef.current=null}},[size,seed]);useEffect(()=>()=>{if(animRef.current)clearInterval(animRef.current)},[]);
-  const displayMat=showAnim?matrix.map((r,ri)=>r.map((v,ci)=>{return ri*size+ci<animStep?Math.max(0,v):v})):null;
-  function CellGrid({data,mode}){return <div style={{display:'inline-grid',gridTemplateColumns:`repeat(${size},${cellSz}px)`,gap:1,borderRadius:6,padding:1,background:C.border}}>{data.flatMap((row,ri)=>row.map((val,ci)=>{const origNeg=matrix[ri][ci]<0;const neg=val<0;const t=Math.abs(val)/255;let bg,color;if(neg){bg=`rgba(239,68,68,${.2+t*.5})`;color=C.reluNeg}else if(mode==='relu'&&origNeg){bg='rgba(34,197,94,.15)';color=C.relu}else{bg=`rgba(${14+t*40},${22+t*60},${50+t*100},1)`;color=t>.5?'#0a0e1a':C.text}return <div key={ri+'-'+ci} style={{width:cellSz,height:cellSz,display:'flex',alignItems:'center',justifyContent:'center',fontSize:cellSz<30?9:11,fontFamily:mono,fontWeight:(neg||origNeg)?800:400,background:bg,color,borderRadius:2,border:mode==='relu'&&origNeg?`1px solid ${C.relu}44`:'1px solid transparent'}}>{val}</div>}))}</div>}
-  return <div>
-    <SectionTitle icon="⚡" title="활성화 함수 (ReLU)" sub="음수→0 변환으로 비선형성을 부여하는 ReLU를 체험하세요"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 왜?</span> 선형 변환만 쌓으면 <span style={{color:C.accent2}}>f(g(x))=ax+b</span>. ReLU로 비선형성을 추가하면 <span style={{color:C.accent}}>복잡한 패턴</span> 학습 가능!</Tip>
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:14}}><Slider label="맵 크기" value={size} onChange={setSize} min={4} max={10}/><button onClick={()=>setSeed(s=>s+1)} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent2,color:'#fff',fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>⟳</button><button onClick={startAnim} style={{padding:'6px 12px',borderRadius:6,border:'none',background:C.accent,color:C.bg,fontFamily:mono,fontSize:11,fontWeight:700,alignSelf:'flex-end'}}>▶ 셀별 변환</button></div>
-      <div style={{display:'flex',alignItems:'flex-start',justifyContent:'center',gap:14,flexWrap:'wrap'}}>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>합성곱 출력</div><CellGrid data={matrix} mode="input"/><div style={{fontSize:10,color:C.reluNeg,fontFamily:mono,marginTop:3}}>빨간 = 음수 ({negCount}개)</div></div>
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',padding:'20px 0'}}><div style={{fontSize:16,color:C.relu,fontWeight:800,fontFamily:mono}}>ReLU</div><div style={{fontSize:22,color:C.accent}}>⟹</div></div>
-        <div style={{textAlign:'center'}}><div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>{showAnim?'변환 중...':'적용 후'}</div><CellGrid data={showAnim?displayMat:reluMatrix} mode="relu"/><div style={{fontSize:10,color:C.relu,fontFamily:mono,marginTop:3}}>초록 = 0으로 변환</div></div>
-      </div>
-    </div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
-      <InfoBox icon="🔢" title="통계">{total}개 중 <span style={{color:C.reluNeg}}>{negCount}개</span>→0 (<span style={{color:C.accent3,fontWeight:800}}>{((negCount/total)*100).toFixed(1)}%</span> 비활성화)</InfoBox>
-      <InfoBox icon="🎯" title="의미">비활성 뉴런 = <span style={{color:C.accent2}}>특징 미감지</span> → <span style={{color:C.accent}}>희소 표현</span></InfoBox>
-      <InfoBox icon="📈" title="그래프"><svg viewBox="0 0 200 120" style={{width:'100%',maxWidth:200}}><line x1={20} y1={60} x2={180} y2={60} stroke={C.dim} strokeWidth={1}/><line x1={100} y1={10} x2={100} y2={110} stroke={C.dim} strokeWidth={1}/><line x1={20} y1={60} x2={100} y2={60} stroke={C.reluNeg} strokeWidth={2.5}/><line x1={100} y1={60} x2={180} y2={10} stroke={C.relu} strokeWidth={2.5}/><circle cx={100} cy={60} r={3} fill={C.accent3}/></svg></InfoBox>
-    </div>
-  </div>
-}
+    await updateDoc(groupRef, { members: newMembers });
+    setLessonCode(code); setGroupId(gId); setView('student_game');
+  };
 
-/* ══════════════════════════════════════════════
-   TAB 4: FEATURE EXTRACTION — IMAGE BASED
-   ══════════════════════════════════════════════ */
-function FeatureMapTab(){
-  const [imgSize,setImgSize]=useState(20);
-  const [pattern,setPattern]=useState('smiley');
-  const [activeKernel,setActiveKernel]=useState(0);
-  const [showRelu,setShowRelu]=useState(false);
-  const [showPool,setShowPool]=useState(false);
-  const [poolKernel,setPoolKernel]=useState(2);
+  const getMyRole = () => {
+    if (!groupData || !user || !groupData.members?.[user.uid]) return null;
+    const capacity = groupData.capacity || 4;
+    const baseIndex = groupData.members[user.uid].baseIndex;
+    return capacity === 3 ? ['가로 탐정', '세로 탐정', '정답 대장'][baseIndex % 3] : Object.keys(ROLE_INFO)[baseIndex % 4];
+  };
 
-  const kernels=[
-    {name:'수평 엣지',kernel:[[-1,-1,-1],[0,0,0],[1,1,1]],color:'#4ecdc4',desc:'가로 방향 밝기 변화 감지'},
-    {name:'수직 엣지',kernel:[[-1,0,1],[-1,0,1],[-1,0,1]],color:'#00b8d4',desc:'세로 방향 밝기 변화 감지'},
-    {name:'대각선',kernel:[[1,0,-1],[0,0,0],[-1,0,1]],color:'#ffd166',desc:'대각선 방향 경계 감지'},
-    {name:'샤프닝',kernel:[[0,-1,0],[-1,5,-1],[0,-1,0]],color:'#ff5577',desc:'이미지 선명하게 (엣지 강조)'},
-    {name:'블러',kernel:[[1,1,1],[1,1,1],[1,1,1]],color:'#a78bfa',desc:'이미지 부드럽게 (평균 필터)'},
-  ];
+  const updateGroup = async (updates) => {
+    if (!user || !lessonCode || !groupId) return;
+    const groupRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonCode, 'groups', groupId);
+    await updateDoc(groupRef, updates);
+  };
 
-  const srcImg=useMemo(()=>generateImage(imgSize,pattern),[imgSize,pattern]);
-  const gray=useMemo(()=>imgToGray(srcImg),[srcImg]);
+  const startRound = async () => {
+    if (!user) return;
+    const capacity = groupData.capacity || 4;
+    if (capacity === 3) {
+      const p = EASY_PATTERNS[Math.floor(Math.random() * EASY_PATTERNS.length)];
+      await updateGroup({
+        stage: STAGES.SCANNING,
+        imageData: p.data,
+        category: p.category,
+        intendedAnswer: p.name,
+        finalGuess: '',
+        horizScores: Array(9).fill(0),
+        vertScores: Array(9).fill(0),
+        horizDone: false,
+        vertDone: false
+      });
+    } else {
+      await updateGroup({ 
+        stage: STAGES.DRAWING, 
+        imageData: Array(25).fill(0), 
+        category: '',
+        intendedAnswer: '',
+        finalGuess: '',
+        horizScores: Array(9).fill(0),
+        vertScores: Array(9).fill(0),
+        horizDone: false,
+        vertDone: false
+      });
+    }
+  };
 
-  const convResults=useMemo(()=>kernels.map(k=>convGray(gray,k.kernel)),[gray]);
-  const reluResults=useMemo(()=>convResults.map(c=>reluMap(c)),[convResults]);
-  const poolResults=useMemo(()=>reluResults.map(r=>poolMap(r,poolKernel,'max')),[reluResults,poolKernel]);
-
-  const activeConv=convResults[activeKernel];
-  const activeRelu=reluResults[activeKernel];
-  const activePool=poolResults[activeKernel];
-  const aK=kernels[activeKernel];
-
-  const imgPxSz=imgSize>24?7:imgSize>16?9:imgSize>10?12:16;
-  const convSz=activeConv[0]?.length||1;
-  const convPxSz=Math.max(4,Math.min(16,Math.round(imgPxSz*imgSize/convSz)));
-  const reluSz=activeRelu[0]?.length||1;
-  const reluPxSz=Math.max(4,Math.min(16,Math.round(imgPxSz*imgSize/reluSz)));
-  const poolSz=activePool[0]?.length||1;
-  const poolPxSz=Math.max(4,Math.min(20,Math.round(imgPxSz*imgSize/poolSz)));
-
-  const greenRed=(v,mx)=>{if(v>=0)return[0,Math.round((v/mx)*220)+30,0];return[Math.round((-v/mx)*220)+30,0,0]};
-
-  return <div>
-    <SectionTitle icon="🧠" title="계층적 특징 추출 — 실제 이미지 체험" sub="이미지에 직접 필터를 적용하고 Conv→ReLU→Pool 파이프라인을 관찰하세요"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 직접 해보세요!</span> 이미지와 필터를 바꿔가며 <span style={{color:C.accent}}>어떤 특징이 추출되는지</span> 관찰하세요.<br/>ReLU와 Pooling 스위치를 켜면 CNN의 한 층이 실제로 하는 일을 처음부터 끝까지 볼 수 있습니다.</Tip>
-
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',flexWrap:'wrap',gap:12,marginBottom:14}}>
-        <Slider label="이미지 크기" value={imgSize} onChange={setImgSize} min={10} max={32}/>
-        <div style={{minWidth:150}}>
-          <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>이미지 패턴</div>
-          <div style={{display:'flex',gap:3}}>
-            {[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'5px',borderRadius:6,border:pattern===k?`1px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:14,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}
-          </div>
-        </div>
-      </div>
-
-      {/* Kernel selector */}
-      <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:6}}>🎛️ 필터(커널) 선택 — 클릭하여 효과를 비교하세요</div>
-      <div style={{display:'flex',gap:6,marginBottom:14,flexWrap:'wrap'}}>
-        {kernels.map((k,i)=><button key={i} onClick={()=>setActiveKernel(i)} style={{padding:'8px 10px',borderRadius:8,border:`2px solid ${activeKernel===i?k.color:C.border}`,background:activeKernel===i?`${k.color}22`:C.bg,fontFamily:mono,fontSize:10,color:k.color,fontWeight:700,textAlign:'center',minWidth:80}}>
-          <div>{k.name}</div>
-          <div style={{display:'grid',gridTemplateColumns:'repeat(3,16px)',gap:1,margin:'4px auto 0',justifyContent:'center'}}>
-            {k.kernel.flatMap((row,ri)=>row.map((v,ci)=><div key={ri+'-'+ci} style={{width:16,height:14,fontSize:7,display:'flex',alignItems:'center',justifyContent:'center',borderRadius:2,background:v>0?`rgba(34,197,94,${v*.2})`:v<0?`rgba(239,68,68,${-v*.2})`:C.dim,color:v===0?C.dim:v>0?C.relu:C.reluNeg}}>{v}</div>))}
-          </div>
-        </button>)}
-      </div>
-
-      {/* Pipeline toggles */}
-      <div style={{display:'flex',gap:10,marginBottom:14,fontFamily:mono,fontSize:12}}>
-        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showRelu?C.relu:C.muted}}>
-          <input type="checkbox" checked={showRelu} onChange={e=>setShowRelu(e.target.checked)} style={{accentColor:C.relu}}/>
-          ReLU 적용
-        </label>
-        <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer',color:showPool?C.accent:C.muted}}>
-          <input type="checkbox" checked={showPool} onChange={e=>setShowPool(e.target.checked)} style={{accentColor:C.accent}}/>
-          Max Pooling (÷{poolKernel})
-        </label>
-        {showPool&&<Slider label="풀링 커널" value={poolKernel} onChange={setPoolKernel} min={2} max={3}/>}
-      </div>
-
-      {/* Visual Pipeline */}
-      <div style={{display:'flex',alignItems:'center',gap:8,flexWrap:'wrap',justifyContent:'center',padding:'10px 0'}}>
-        <PixelCanvas img={srcImg} pixelSize={imgPxSz} label="원본 이미지" borderColor={C.accent3}/>
-
-        <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:aK.color}}>
-          <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${aK.color}44`}}>Conv</span>
-        </div>
-
-        <GrayCanvas data={activeConv} pixelSize={convPxSz} label={`합성곱 결과 (${aK.name})`} borderColor={aK.color} colorFn={greenRed}/>
-
-        {showRelu&&<>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.relu}}>
-            <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.relu}44`}}>ReLU</span>
-          </div>
-          <GrayCanvas data={activeRelu} pixelSize={reluPxSz} label="ReLU 적용" borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>
-        </>}
-
-        {showPool&&showRelu&&<>
-          <div style={{display:'flex',flexDirection:'column',alignItems:'center',fontFamily:mono,fontSize:10,color:C.accent}}>
-            <span style={{fontSize:18}}>→</span><span style={{background:C.bg,padding:'2px 6px',borderRadius:4,border:`1px solid ${C.accent}44`}}>Pool</span>
-          </div>
-          <GrayCanvas data={activePool} pixelSize={poolPxSz} label={`Max Pool (${poolSz}×${poolSz})`} borderColor={C.accent} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>
-        </>}
-      </div>
-
-      <div style={{padding:10,background:`${aK.color}10`,borderRadius:8,border:`1px solid ${aK.color}22`,fontFamily:mono,fontSize:11,color:C.text,lineHeight:1.7,marginTop:8}}>
-        <span style={{color:aK.color,fontWeight:800}}>🔎 {aK.name}:</span> {aK.desc}
-        {showRelu&&<><br/><span style={{color:C.relu}}>→ ReLU:</span> 음수(감지 안 된 영역)가 0이 되어 검은색으로 나타남</>}
-        {showPool&&showRelu&&<><br/><span style={{color:C.accent}}>→ Pooling:</span> 크기 {convSz}→{poolSz}로 축소, 핵심 특징만 유지</>}
-      </div>
-    </div>
-
-    {/* All filters comparison */}
-    <div className="card">
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:10}}>🔬 모든 필터 결과 한눈에 비교</div>
-      <div style={{display:'flex',gap:10,flexWrap:'wrap',justifyContent:'center'}}>
-        {kernels.map((k,i)=>{
-          const data=showRelu?reluResults[i]:convResults[i];
-          const sz=data[0]?.length||1;
-          const px=Math.max(3,Math.min(10,Math.round(120/sz)));
-          return <div key={i} style={{textAlign:'center'}}>
-            <GrayCanvas data={data} pixelSize={px} label={k.name} borderColor={k.color} colorFn={showRelu?(v,mx)=>[0,Math.round((v/mx)*230)+20,0]:greenRed}/>
-          </div>
-        })}
-      </div>
-    </div>
-  </div>
-}
-
-/* ══════════════════════════════════════════════
-   TAB 5: FULL PIPELINE CLASSIFICATION
-   ══════════════════════════════════════════════ */
-function FlattenFCTab(){
-  const [imgSize,setImgSize]=useState(16);
-  const [pattern,setPattern]=useState('smiley');
-  const [poolKernel,setPoolKernel]=useState(2);
-
-  const patterns=['smiley','heart','star','cross','gradient'];
-  const classLabels=['스마일','하트','별','십자','그라데이션'];
-
-  const srcImg=useMemo(()=>generateImage(imgSize,pattern),[imgSize,pattern]);
-  const gray=useMemo(()=>imgToGray(srcImg),[srcImg]);
-
-  // 3 conv filters
-  const filterSet=[
-    [[-1,-1,-1],[0,0,0],[1,1,1]],
-    [[-1,0,1],[-1,0,1],[-1,0,1]],
-    [[1,0,-1],[0,0,0],[-1,0,1]],
-  ];
-  const convMaps=useMemo(()=>filterSet.map(k=>convGray(gray,k)),[gray]);
-  const reluMaps=useMemo(()=>convMaps.map(c=>reluMap(c)),[convMaps]);
-  const poolMaps=useMemo(()=>reluMaps.map(r=>poolMap(r,poolKernel,'max')),[reluMaps,poolKernel]);
-
-  // Flatten
-  const flatVals=useMemo(()=>poolMaps.flatMap(m=>m.flat().map(v=>Math.round(v))),[poolMaps]);
-  const flatLen=flatVals.length;
-
-  // Simple "classification" by pattern matching energy
-  const scores=useMemo(()=>{
-    const energies=patterns.map((_,pi)=>{
-      const testImg=generateImage(imgSize,patterns[pi]);
-      const testGray=imgToGray(testImg);
-      const testFlat=filterSet.flatMap(k=>poolMap(reluMap(convGray(testGray,k)),poolKernel,'max').flat());
-      let dot=0,magA=0,magB=0;
-      for(let i=0;i<Math.min(flatVals.length,testFlat.length);i++){dot+=flatVals[i]*testFlat[i];magA+=flatVals[i]*flatVals[i];magB+=testFlat[i]*testFlat[i]}
-      return magA>0&&magB>0?dot/(Math.sqrt(magA)*Math.sqrt(magB)):0;
+  const nextRound = async () => {
+    if (!user) return;
+    const capacity = groupData.capacity || 4;
+    const memberUids = Object.keys(groupData.members);
+    
+    // 완전 랜덤으로 역할(인덱스) 섞기
+    let indices = Array.from({length: capacity}, (_, i) => i);
+    indices.sort(() => Math.random() - 0.5); 
+    
+    const newMembers = { ...groupData.members };
+    memberUids.forEach((uid, i) => {
+        newMembers[uid].baseIndex = indices[i];
     });
-    const sum=energies.reduce((a,b)=>a+b,.001);
-    return energies.map(e=>Math.round(e/sum*100));
-  },[flatVals,imgSize,poolKernel]);
 
-  const maxClass=scores.indexOf(Math.max(...scores));
+    await updateGroup({
+      round: groupData.round + 1,
+      stage: STAGES.LOBBY,
+      imageData: Array(25).fill(0),
+      horizScores: Array(9).fill(0),
+      vertScores: Array(9).fill(0),
+      finalGuess: '',
+      intendedAnswer: '',
+      category: '',
+      members: newMembers,
+      isCorrect: null,
+      horizDone: false,
+      vertDone: false
+    });
+  };
 
-  const imgPxSz=imgSize>24?7:imgSize>16?9:12;
-  const convSz=convMaps[0]?.[0]?.length||1;
-  const poolSz=poolMaps[0]?.[0]?.length||1;
-  const cPx=Math.max(3,Math.min(10,Math.round(100/convSz)));
-  const pPx=Math.max(3,Math.min(14,Math.round(100/poolSz)));
+  // --- Views ---
 
-  return <div>
-    <SectionTitle icon="🏗️" title="CNN 전체 파이프라인 — 이미지 분류 체험" sub="이미지를 넣으면 Conv→ReLU→Pool→Flatten→분류까지 전 과정이 진행됩니다"/>
-    <Tip color={C.accent4}><span style={{color:C.accent4,fontWeight:800}}>💡 직접 해보세요!</span> 아래에서 이미지 패턴을 바꿔가며 <span style={{color:C.accent}}>분류 결과가 어떻게 달라지는지</span> 확인하세요.<br/>피처맵, 풀링 크기를 조절하면 분류 정확도가 변하는 것을 관찰할 수 있습니다.</Tip>
-
-    <div className="card" style={{marginBottom:14}}>
-      <div style={{display:'flex',flexWrap:'wrap',gap:12}}>
-        <Slider label="이미지 크기" value={imgSize} onChange={setImgSize} min={10} max={24}/>
-        <Slider label="풀링 커널" value={poolKernel} onChange={setPoolKernel} min={2} max={3}/>
-        <div style={{minWidth:200}}>
-          <div style={{fontSize:11,color:C.muted,fontFamily:mono,marginBottom:4}}>입력 이미지 선택</div>
-          <div style={{display:'flex',gap:4}}>
-            {[['smiley','😊'],['heart','❤️'],['star','⭐'],['cross','✚'],['gradient','🌈']].map(([k,e])=><button key={k} onClick={()=>setPattern(k)} style={{flex:1,padding:'6px',borderRadius:6,border:pattern===k?`2px solid ${C.accent}`:`1px solid ${C.border}`,fontSize:16,background:pattern===k?`${C.accent}33`:C.dim}}>{e}</button>)}
-          </div>
+  if (view === 'main') return (
+    <div className="h-screen flex flex-col items-center justify-center bg-indigo-600 text-white p-6">
+        <LucideBrainCircuit size={80} className="mb-6 animate-bounce" />
+        <h1 className="text-5xl font-black mb-12 tracking-tighter">AI 패턴 탐정단 v3</h1>
+        <div className="flex flex-col sm:flex-row gap-6 w-full max-w-xl">
+            <button onClick={() => setView('teacher_setup')} className="flex-1 bg-white text-indigo-600 py-8 rounded-[2rem] font-black text-2xl shadow-xl hover:scale-105 transition-transform">선생님 메뉴</button>
+            <button onClick={() => setView('student_join')} className="flex-1 bg-indigo-900 text-indigo-100 py-8 rounded-[2rem] font-black text-2xl shadow-xl hover:scale-105 transition-transform">학생 입장</button>
         </div>
-      </div>
     </div>
+  );
 
-    {/* Full pipeline visualization */}
-    <div className="card" style={{marginBottom:14,overflowX:'auto'}}>
-      <div style={{fontSize:13,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:12}}>🔬 전체 파이프라인 시각화</div>
-      <div style={{display:'flex',alignItems:'flex-start',gap:8,minWidth:800,padding:'8px 0'}}>
+  if (view === 'teacher_setup') return <TeacherSetup onCreate={createLesson} onBack={() => setView('main')} />;
+  if (view === 'teacher_dash') return <TeacherDashboard lessonCode={lessonCode} db={db} onBack={() => setView('main')} />;
+  if (view === 'student_join') return <StudentJoin onJoin={joinGroup} onBack={() => setView('main')} db={db} />;
 
-        {/* 1. Input image */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>① 입력</div>
-          <PixelCanvas img={srcImg} pixelSize={imgPxSz} borderColor={C.accent3}/>
-        </div>
-        <div style={{color:C.accent,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 2. Conv maps */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent,fontFamily:mono,fontWeight:700,marginBottom:4}}>② Conv×3</div>
-          <div style={{display:'flex',gap:3}}>
-            {convMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.accent} colorFn={(v,mx)=>{if(v>=0)return[0,Math.round((v/mx)*200)+50,0];return[Math.round((-v/mx)*200)+50,0,0]}}/>)}
-          </div>
-        </div>
-        <div style={{color:C.relu,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 3. ReLU */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.relu,fontFamily:mono,fontWeight:700,marginBottom:4}}>③ ReLU</div>
-          <div style={{display:'flex',gap:3}}>
-            {reluMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={cPx} borderColor={C.relu} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}
-          </div>
-        </div>
-        <div style={{color:C.accent,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 4. Pool */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:'#00b8d4',fontFamily:mono,fontWeight:700,marginBottom:4}}>④ Pool</div>
-          <div style={{display:'flex',gap:3}}>
-            {poolMaps.map((m,i)=><GrayCanvas key={i} data={m} pixelSize={pPx} borderColor={'#00b8d4'} colorFn={(v,mx)=>[0,Math.round((v/mx)*230)+20,0]}/>)}
-          </div>
-          <div style={{fontSize:9,color:C.muted,fontFamily:mono,marginTop:2}}>3×{poolSz}×{poolSz}</div>
-        </div>
-        <div style={{color:C.accent3,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 5. Flatten */}
-        <div style={{textAlign:'center',flexShrink:0}}>
-          <div style={{fontSize:10,color:C.accent3,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑤ Flatten</div>
-          <div style={{display:'flex',flexDirection:'column',gap:1,maxHeight:140,overflow:'hidden',padding:2,background:C.border,borderRadius:4}}>
-            {flatVals.slice(0,18).map((v,i)=>{const t=Math.min(v,255)/255;return <div key={i} style={{width:24,height:10,borderRadius:1,background:`rgba(0,${Math.round(t*230)+20},0,1)`,fontSize:5,fontFamily:mono,display:'flex',alignItems:'center',justifyContent:'center',color:t>.5?'#000':C.text}}/>})}
-            {flatLen>18&&<div style={{fontSize:7,color:C.muted,fontFamily:mono}}>⋮</div>}
-          </div>
-          <div style={{fontSize:9,color:C.muted,fontFamily:mono,marginTop:2}}>1D [{flatLen}]</div>
-        </div>
-        <div style={{color:C.accent4,fontSize:16,alignSelf:'center',flexShrink:0}}>→</div>
-
-        {/* 6. FC + Softmax */}
-        <div style={{textAlign:'center',flexShrink:0,minWidth:110}}>
-          <div style={{fontSize:10,color:C.accent2,fontFamily:mono,fontWeight:700,marginBottom:4}}>⑥ FC + Softmax</div>
-          {classLabels.map((cls,i)=><div key={i} style={{display:'flex',alignItems:'center',gap:3,marginBottom:3}}>
-            <span style={{fontSize:9,fontFamily:mono,color:C.text,width:50,textAlign:'right'}}>{patterns[i]==='smiley'?'😊':patterns[i]==='heart'?'❤️':patterns[i]==='star'?'⭐':patterns[i]==='cross'?'✚':'🌈'} {cls}</span>
-            <div style={{width:60,height:14,background:C.bg,borderRadius:3,overflow:'hidden',border:`1px solid ${C.border}`}}>
-              <div style={{height:'100%',width:`${scores[i]}%`,background:i===maxClass?`linear-gradient(90deg,${C.accent},${C.accent3})`:C.dim,transition:'width .3s'}}/>
+  if (view === 'student_game' && groupData) {
+    if (!groupData.members?.[user?.uid]) {
+        return (
+            <div className="min-h-screen bg-slate-50 p-4 md:p-8 flex items-center justify-center">
+                <div className="bg-white p-10 rounded-[3rem] text-center shadow-xl">
+                    <LucideLock size={64} className="mx-auto text-rose-400 mb-6" />
+                    <h2 className="text-3xl font-black text-slate-800 mb-4">접속이 끊겼습니다</h2>
+                    <p className="text-slate-500 font-bold mb-8">선생님에 의해 내보내졌거나 연결 문제가 발생했습니다.<br/>이전과 동일한 이름으로 다시 접속하면 원래 자리로 복귀할 수 있습니다.</p>
+                    <button onClick={() => setView('main')} className="bg-indigo-600 text-white px-10 py-4 rounded-2xl font-black text-xl hover:bg-indigo-700 transition-all shadow-lg active:scale-95">처음으로 돌아가기</button>
+                </div>
             </div>
-            <span style={{fontSize:9,fontFamily:mono,color:i===maxClass?C.accent:C.muted,fontWeight:i===maxClass?800:400,width:28}}>{scores[i]}%</span>
-          </div>)}
-          <div style={{fontSize:11,fontFamily:mono,color:C.accent,fontWeight:800,marginTop:6,padding:'3px 8px',background:`${C.accent}22`,borderRadius:6,border:`1px solid ${C.accent}44`}}>
-            예측: {classLabels[maxClass]} {['😊','❤️','⭐','✚','🌈'][maxClass]}
-          </div>
+        );
+    }
+
+    const myRole = getMyRole();
+    return (
+        <div className="min-h-screen flex flex-col md:flex-row bg-slate-50">
+            {/* 역할 매뉴얼 사이드바 */}
+            <aside className="w-full md:w-80 bg-white border-r border-slate-200 p-6 shrink-0 order-2 md:order-1">
+                <div className="sticky top-6">
+                    <div className="bg-slate-100 p-6 rounded-3xl mb-6 shadow-sm">
+                        <div className="flex items-center gap-3 mb-4">
+                            <h2 className="font-black text-xl text-slate-700">{myRole || '대기'} 매뉴얼</h2>
+                        </div>
+                        <p className="text-sm font-bold text-slate-500 mb-6">{ROLE_INFO[myRole]?.desc || '기다려주세요.'}</p>
+                        <ul className="space-y-4">
+                            {ROLE_INFO[myRole]?.manual?.map((m, i) => (
+                                <li key={i} className="flex gap-3 text-sm text-slate-700 font-bold items-start">
+                                    <span className="bg-white w-6 h-6 rounded-full flex items-center justify-center shrink-0 text-xs border-2 border-slate-200 shadow-sm">{i+1}</span>
+                                    <span className="pt-0.5">{m}</span>
+                                </li>
+                            ))}
+                        </ul>
+                    </div>
+                    <div className="bg-slate-50 p-5 rounded-2xl border-2 border-slate-100 text-center">
+                        <div className="flex items-center justify-between mb-4">
+                            <p className="text-lg font-black text-indigo-600">{groupId} 모둠</p>
+                            <div className="text-right">
+                                <p className="text-xs text-slate-400 font-bold">누적 점수</p>
+                                <p className="text-xl font-black text-amber-500">{groupData.score || 0}점</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setView('main')} className="w-full py-3 text-sm font-bold text-slate-400 hover:text-rose-500 border-2 border-slate-200 rounded-xl bg-white transition-colors">수업 나가기</button>
+                    </div>
+                </div>
+            </aside>
+
+            <main className="flex-1 p-4 md:p-10 order-1 md:order-2 overflow-y-auto">
+                {groupData.stage === STAGES.LOBBY && (
+                    <div className="bg-white p-12 rounded-[3rem] shadow-sm text-center h-full flex flex-col justify-center">
+                        <h2 className="text-4xl font-black mb-12 text-slate-700">모둠원 대기실</h2>
+                        <div className="flex flex-wrap justify-center gap-6 mb-16">
+                            {Object.values(groupData.members || {}).map((m, i) => (
+                                <div key={i} className="flex flex-col items-center">
+                                    <div className="w-24 h-24 bg-indigo-100 rounded-[2rem] flex items-center justify-center text-indigo-600 mb-3 border-b-4 border-indigo-200"><LucideUsers size={40} /></div>
+                                    <span className="text-sm font-black text-indigo-500">{m.name}</span>
+                                </div>
+                            ))}
+                            {Array(Math.max(0, (groupData.capacity || 4) - Object.keys(groupData.members || {}).length)).fill(0).map((_, i) => (
+                                <div key={i} className="w-24 h-24 bg-slate-50 border-4 border-dashed border-slate-200 rounded-[2rem] flex items-center justify-center text-slate-300"><LucideUserPlus size={32} /></div>
+                            ))}
+                        </div>
+                        <button disabled={Object.keys(groupData.members || {}).length < 2} onClick={startRound} className="bg-indigo-600 text-white px-16 py-6 rounded-[2rem] font-black text-2xl hover:bg-indigo-700 shadow-xl transition-all active:scale-95 inline-block mx-auto disabled:opacity-30"> <LucidePlay className="inline mr-2"/> 수사 시작하기! </button>
+                    </div>
+                )}
+
+                {groupData.stage === STAGES.DRAWING && (
+                    myRole === '그림 대장' ? (
+                        <LeaderDrawingView state={groupData} onUpdate={updateGroup} />
+                    ) : (
+                        <WaitingView text="그림 대장이 비밀 패턴 설계 중..." role="그림 대장" />
+                    )
+                )}
+
+                {groupData.stage === STAGES.SCANNING && (
+                    (['가로 탐정', '세로 탐정'].includes(myRole)) ? (
+                        <DetectiveScanningView role={myRole} state={groupData} onUpdate={updateGroup} />
+                    ) : (
+                        <WaitingView text="탐정들이 특징을 분석 중입니다..." role="탐정들" />
+                    )
+                )}
+
+                {groupData.stage === STAGES.GUESSING && (
+                    myRole === '정답 대장' ? (
+                        <AnswererGuessView state={groupData} onUpdate={updateGroup} />
+                    ) : (
+                        <WaitingView text="정답 대장이 수사망을 좁히는 중..." role="정답 대장" />
+                    )
+                )}
+
+                {groupData.stage === STAGES.FINISHED && <ResultView state={groupData} onNext={nextRound} />}
+            </main>
         </div>
-      </div>
-    </div>
+    );
+  }
 
-    {/* Stats */}
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(180px,1fr))',gap:10}}>
-      <InfoBox icon="📐" title="크기 변화">{imgSize}×{imgSize} → Conv: {convSz}×{convSz} → Pool: {poolSz}×{poolSz} → Flat: {flatLen}</InfoBox>
-      <InfoBox icon="⚙️" title="가중치 수">Conv: 3×3×3={27} + FC: {flatLen}×{classLabels.length}={flatLen*classLabels.length} = <span style={{color:C.accent,fontWeight:800}}>{27+flatLen*classLabels.length}개</span></InfoBox>
-      <InfoBox icon="🎯" title="체험 팁">다른 이미지를 선택하여 <span style={{color:C.accent}}>분류 확률이 바뀌는 것</span>을 확인하세요!</InfoBox>
-    </div>
-  </div>
+  return null;
 }
 
-/* ══════════════════════════════════════════════
-   MAIN APP
-   ══════════════════════════════════════════════ */
-const tabs=[{id:'conv',label:'🔄 합성곱',color:C.accent},{id:'pool',label:'🔲 풀링',color:'#00b8d4'},{id:'relu',label:'⚡ ReLU',color:C.relu},{id:'feat',label:'🧠 특징추출',color:C.accent3},{id:'fc',label:'🏗️ 분류',color:C.accent4}];
+// --- Sub Components ---
 
-function App(){
-  const [tab,setTab]=useState('conv');
-  return <div style={{padding:'16px 10px'}}><div style={{maxWidth:960,margin:'0 auto'}}>
-    <div style={{textAlign:'center',marginBottom:16}}>
-      <h1 style={{fontFamily:outfit,fontWeight:800,fontSize:24,background:`linear-gradient(135deg,${C.accent},${C.accent3},${C.accent4})`,WebkitBackgroundClip:'text',WebkitTextFillColor:'transparent'}}>CNN 알고리즘 종합 체험 시뮬레이터</h1>
-      <p style={{color:C.muted,fontSize:12,marginTop:4,fontFamily:mono}}>합성곱 · 풀링 · 활성화 함수 · 특징 추출 · 분류를 직접 체험하세요</p>
-    </div>
-    <div style={{display:'flex',gap:3,marginBottom:18,background:C.card,borderRadius:10,padding:4,border:`1px solid ${C.border}`}}>
-      {tabs.map((t,i)=><button key={t.id} onClick={()=>setTab(t.id)} style={{flex:1,padding:'10px 2px',borderRadius:8,border:'none',fontFamily:mono,fontSize:10,fontWeight:700,background:tab===t.id?`${t.color}22`:'transparent',color:tab===t.id?t.color:C.muted,borderBottom:tab===t.id?`2px solid ${t.color}`:'2px solid transparent'}}>{t.label}</button>)}
-    </div>
-    <div className="fade-in" key={tab}>
-      {tab==='conv'&&<ConvolutionTab/>}{tab==='pool'&&<PoolingTab/>}{tab==='relu'&&<ReluTab/>}{tab==='feat'&&<FeatureMapTab/>}{tab==='fc'&&<FlattenFCTab/>}
-    </div>
-    <div className="card" style={{marginTop:18}}>
-      <div style={{fontSize:11,fontFamily:mono,fontWeight:800,color:C.accent3,marginBottom:6}}>📋 CNN 파이프라인 (클릭하여 이동)</div>
-      <div style={{display:'flex',alignItems:'center',justifyContent:'center',gap:3,flexWrap:'wrap',fontFamily:mono,fontSize:10}}>
-        {[{l:'입력',c:C.text,t:null},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Conv',c:C.accent,t:'conv'},{l:'ReLU',c:C.relu,t:'relu'},{l:'Pool',c:'#00b8d4',t:'pool'},{l:'Flatten',c:C.accent3,t:'fc'},{l:'FC',c:C.accent4,t:'fc'},{l:'Softmax',c:C.accent2,t:'fc'},{l:'출력',c:C.text,t:null}].map((s,i)=><span key={i} style={{display:'flex',alignItems:'center',gap:3}}>
-          {i>0&&<span style={{color:C.dim}}>→</span>}
-          <span onClick={()=>s.t&&setTab(s.t)} style={{padding:'3px 6px',borderRadius:4,background:`${s.c}18`,border:`1px solid ${s.c}44`,color:s.c,fontWeight:700,cursor:s.t?'pointer':'default'}}>{s.l}</span>
-        </span>)}
-      </div>
-    </div>
-  </div></div>
+function TeacherSetup({ onCreate, onBack }) {
+    const [code, setCode] = useState('');
+    const [groupsConfig, setGroupsConfig] = useState([4, 4, 4, 4]); 
+    const [loading, setLoading] = useState(false);
+    
+    const handleCreate = async () => {
+        setLoading(true);
+        await onCreate(code, groupsConfig);
+        setLoading(false);
+    };
+
+    const addGroup = () => setGroupsConfig([...groupsConfig, 4]);
+    const removeGroup = () => setGroupsConfig(groupsConfig.slice(0, -1));
+    const setCapacity = (index, cap) => {
+        const newConfig = [...groupsConfig];
+        newConfig[index] = cap;
+        setGroupsConfig(newConfig);
+    };
+
+    return (
+        <div className="h-screen flex items-center justify-center p-6 bg-slate-900">
+            <div className="bg-white p-8 md:p-10 rounded-[3rem] w-full max-w-lg shadow-2xl text-center">
+                <h2 className="text-3xl font-black mb-8">수업 개설하기</h2>
+                <input type="text" placeholder="수업 코드 (예: AI101)" value={code} onChange={e => setCode(e.target.value.toUpperCase())} className="w-full p-5 border-4 border-slate-50 rounded-2xl text-2xl font-black text-center mb-6 outline-none focus:border-indigo-500" />
+                
+                <div className="flex items-center justify-between bg-slate-50 p-4 rounded-2xl mb-4">
+                    <span className="font-bold text-slate-500 ml-2">총 모둠 수</span>
+                    <div className="flex items-center gap-4 mr-2">
+                        <button onClick={removeGroup} disabled={groupsConfig.length <= 1} className="text-2xl font-black text-indigo-600 bg-white w-10 h-10 rounded-full shadow-sm disabled:opacity-30">-</button>
+                        <span className="text-2xl font-black w-8">{groupsConfig.length}</span>
+                        <button onClick={addGroup} className="text-3xl font-black text-indigo-600 bg-white w-10 h-10 rounded-full shadow-sm">+</button>
+                    </div>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-2xl mb-6 border-2 border-slate-100">
+                    <p className="text-sm font-bold text-slate-500 mb-3">각 모둠별 인원 설정 (3명 / 4명)</p>
+                    <div className="grid grid-cols-2 gap-3 max-h-40 overflow-y-auto p-1">
+                        {groupsConfig.map((cap, i) => (
+                            <div key={i} className="flex items-center justify-between bg-white p-2 rounded-xl border border-slate-200 shadow-sm">
+                                <span className="font-bold text-sm ml-2">{i+1}모둠</span>
+                                <div className="flex gap-1">
+                                    <button onClick={() => setCapacity(i, 3)} className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${cap === 3 ? 'bg-rose-500 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>3명</button>
+                                    <button onClick={() => setCapacity(i, 4)} className={`px-3 py-1 rounded-lg text-xs font-black transition-all ${cap === 4 ? 'bg-indigo-500 text-white shadow-md' : 'bg-slate-100 text-slate-400 hover:bg-slate-200'}`}>4명</button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <button onClick={handleCreate} disabled={!code || loading} className="w-full bg-indigo-600 text-white py-5 rounded-[2rem] font-black text-2xl hover:bg-indigo-700 shadow-lg active:scale-95 disabled:opacity-50 mb-2">
+                    {loading ? '생성 중...' : '수업 시작하기'}
+                </button>
+                <button onClick={onBack} className="w-full text-slate-400 font-bold py-3 hover:text-slate-600">취소</button>
+            </div>
+        </div>
+    );
 }
 
-ReactDOM.render(<App/>,document.getElementById('root'));
-</script>
-</body>
-</html>
+function TeacherDashboard({ lessonCode, db, onBack }) {
+    const [groups, setGroups] = useState([]);
+    useEffect(() => {
+        const qGroups = collection(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonCode, 'groups');
+        const unsubscribe = onSnapshot(qGroups, (snap) => {
+            setGroups(snap.docs.map(doc => doc.data()).sort((a,b) => a.id.localeCompare(b.id)));
+        }, (err) => console.error(err));
+        return () => unsubscribe();
+    }, [lessonCode]);
+
+    const kickStudent = async (gId, studentUid) => {
+        const groupRef = doc(db, 'artifacts', appId, 'public', 'data', 'lessons', lessonCode, 'groups', gId);
+        const snap = await getDoc(groupRef);
+        if (snap.exists()) {
+            const members = snap.data().members || {};
+            const newMembers = { ...members };
+            delete newMembers[studentUid];
+            await updateDoc(groupRef, { members: newMembers });
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-slate-100 p-8">
+            <header className="flex justify-between items-center mb-10 max-w-6xl mx-auto">
+                <h1 className="text-3xl font-black flex items-center gap-3"><LucideLayoutDashboard className="text-indigo-600"/> 대시보드: {lessonCode}</h1>
+                <button onClick={onBack} className="bg-slate-800 text-white px-6 py-2 rounded-xl font-bold shadow-md">나가기</button>
+            </header>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+                {groups.map(g => (
+                    <div key={g.id} className="bg-white p-6 rounded-[2rem] shadow-sm border-b-4 border-indigo-200 relative overflow-hidden">
+                        <div className="absolute top-0 right-0 bg-amber-400 text-white px-4 py-1 font-black text-sm rounded-bl-xl shadow-sm">{g.score || 0}점</div>
+                        <div className="flex justify-between items-center font-black mb-4 pt-2">
+                            <span className="text-xl">{g.id} 모둠</span>
+                            <span className="text-xs bg-indigo-50 text-indigo-600 px-3 py-1 rounded-full">R{g.round}</span>
+                        </div>
+                        <div className="text-xs font-black text-slate-400 mb-3 uppercase tracking-widest flex justify-between items-center">
+                            <span>{g.stage}</span>
+                            <span className="text-indigo-500">{Object.keys(g.members || {}).length}/{g.capacity || 4} 명</span>
+                        </div>
+                        <div className="grid grid-cols-5 gap-1 w-fit mx-auto bg-slate-50 p-3 rounded-xl border border-slate-100 mb-4">
+                            {g.imageData?.map((v, i) => <div key={i} className={`w-4 h-4 rounded-sm ${v === 1 ? 'bg-slate-800' : 'bg-white border'}`} />)}
+                        </div>
+                        <div className="border-t-2 border-slate-100 pt-4 mt-2">
+                            <p className="text-xs font-black text-slate-400 mb-2">접속 중인 학생</p>
+                            <div className="space-y-2">
+                                {Object.values(g.members || {}).length === 0 ? (
+                                    <p className="text-sm text-slate-400 text-center py-2">없음</p>
+                                ) : (
+                                    Object.values(g.members || {}).map(m => (
+                                        <div key={m.uid} className="flex justify-between items-center bg-slate-50 px-3 py-2 rounded-xl">
+                                            <span className="text-sm font-bold text-slate-700">{m.name}</span>
+                                            <button onClick={() => kickStudent(g.id, m.uid)} className="text-xs text-rose-500 bg-rose-100 hover:bg-rose-200 px-2 py-1 rounded-lg font-black transition-colors">내보내기</button>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+function StudentJoin({ onJoin, onBack, db }) {
+    const [code, setCode] = useState('');
+    const [playerName, setPlayerName] = useState('');
+    const [availableGroups, setAvailableGroups] = useState([]);
+    const [step, setStep] = useState(1);
+    const [errorMsg, setErrorMsg] = useState('');
+
+    const checkLesson = async () => {
+        setErrorMsg('');
+        if (!playerName.trim()) { setErrorMsg("이름을 입력해주세요!"); return; }
+        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'lessons', code));
+        if (snap.exists()) {
+            const gSnap = await getDocs(collection(db, 'artifacts', appId, 'public', 'data', 'lessons', code, 'groups'));
+            setAvailableGroups(gSnap.docs.map(d => d.data()).sort((a,b) => a.id.localeCompare(b.id)));
+            setStep(2);
+        } else {
+            setErrorMsg("수업 코드를 확인해 주세요.");
+        }
+    };
+
+    return (
+        <div className="h-screen flex items-center justify-center p-6 bg-indigo-600">
+            <div className="bg-white p-10 rounded-[3rem] w-full max-w-md shadow-2xl">
+                {step === 1 ? (
+                    <div className="text-center">
+                        <h2 className="text-3xl font-black mb-8 text-indigo-600">수업 참여</h2>
+                        <input type="text" placeholder="선생님이 알려준 코드" value={code} onChange={e => setCode(e.target.value.toUpperCase())} className="w-full p-5 border-4 border-slate-50 rounded-2xl text-xl font-black text-center mb-4 outline-none focus:border-indigo-600" />
+                        <input type="text" placeholder="나의 이름 (예: 홍길동)" value={playerName} onChange={e => setPlayerName(e.target.value)} className="w-full p-5 border-4 border-slate-50 rounded-2xl text-xl font-black text-center mb-6 outline-none focus:border-indigo-600" />
+                        {errorMsg && <p className="text-rose-500 font-bold mb-4">{errorMsg}</p>}
+                        <button onClick={checkLesson} className="w-full bg-indigo-600 text-white py-5 rounded-2xl font-black text-xl shadow-lg hover:bg-indigo-700 active:scale-95 transition-all mb-4">모둠 찾기</button>
+                        <button onClick={onBack} className="text-slate-400 font-bold">취소</button>
+                    </div>
+                ) : (
+                    <div>
+                        <h2 className="text-2xl font-black mb-6 text-center">우리 모둠 선택</h2>
+                        {errorMsg && <p className="text-rose-500 font-bold mb-4 text-center">{errorMsg}</p>}
+                        <div className="grid grid-cols-2 gap-3 mb-6 max-h-[400px] overflow-y-auto">
+                            {availableGroups.map(g => (
+                                <button key={g.id} onClick={() => onJoin(code, g.id, playerName).catch(e => setErrorMsg(e.message))} className="bg-slate-50 p-5 rounded-2xl hover:bg-indigo-50 border-2 border-transparent hover:border-indigo-600 transition-all font-bold flex flex-col items-center gap-2">
+                                    <span className="text-xl font-black text-slate-800">{g.id} 모둠</span>
+                                    <span className="text-xs text-indigo-500 font-black bg-indigo-100 px-3 py-1 rounded-full">{Object.keys(g.members || {}).length}/{g.capacity || 4} 명</span>
+                                </button>
+                            ))}
+                        </div>
+                        <button onClick={() => setStep(1)} className="text-slate-400 font-bold w-full text-center hover:text-slate-600">뒤로 가기</button>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function LeaderDrawingView({ state, onUpdate }) {
+    const [category, setCategory] = useState('');
+    const [answer, setAnswer] = useState('');
+
+    const PATTERN_OPTIONS = {
+        '한글': ['ㄱ', 'ㄴ', 'ㄷ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅌ', 'ㅍ', 'ㅏ', 'ㅓ', 'ㅗ', 'ㅜ'],
+        '알파벳': ['A', 'C', 'E', 'F', 'H', 'I', 'L', 'O', 'P', 'T', 'U', 'Y'],
+        '숫자': ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9']
+    };
+
+    const toggle = (i) => {
+        if (!answer) return alert("먼저 그릴 모양을 위에서 선택해주세요!");
+        const newData = [...state.imageData]; 
+        newData[i] = newData[i] === 0 ? 1 : 0;
+        onUpdate({ imageData: newData });
+    };
+
+    const submit = () => {
+        if (!category || !answer) return alert("카테고리와 그릴 모양을 모두 선택해야 출제할 수 있습니다.");
+        const drawnCount = state.imageData.filter(v => v === 1).length;
+        if (drawnCount < 3) return alert("그림을 너무 적게 그렸어요! 특징이 나타나게 조금 더 그려주세요.");
+
+        onUpdate({ 
+            stage: STAGES.SCANNING, 
+            category: category,
+            intendedAnswer: answer,
+            horizDone: false,
+            vertDone: false
+        });
+    };
+
+    return (
+        <div className="bg-white p-8 md:p-12 rounded-[3rem] shadow-sm text-center h-full flex flex-col justify-center">
+            <h2 className="text-3xl font-black mb-2 text-blue-600">비밀 패턴 설계하기</h2>
+            <p className="text-slate-500 font-bold mb-6 text-sm">탐정들이 맞히기 쉽게 제시된 보기 중 하나를 골라 그려주세요!</p>
+            
+            <div className="bg-slate-50 p-6 rounded-[2rem] border-2 border-slate-100 mb-8 max-w-lg mx-auto w-full">
+                <div className="mb-4">
+                    <p className="text-sm font-black text-slate-400 mb-3 uppercase">1. 어떤 종류를 그릴까요?</p>
+                    <div className="flex flex-wrap gap-2 justify-center">
+                        {Object.keys(PATTERN_OPTIONS).map(c => (
+                            <button key={c} onClick={() => {setCategory(c); setAnswer('');}} 
+                                className={`px-5 py-2 rounded-xl font-black transition-all ${category === c ? 'bg-blue-500 text-white shadow-md' : 'bg-white text-slate-400 border border-slate-200 hover:border-blue-300'}`}>
+                                {c}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {category && (
+                    <div className="mt-6 pt-6 border-t-2 border-slate-200 transition-all duration-300">
+                        <p className="text-sm font-black text-slate-400 mb-3 uppercase">2. 그릴 모양 선택</p>
+                        <div className="flex flex-wrap gap-2 justify-center">
+                            {PATTERN_OPTIONS[category].map(char => (
+                                <button key={char} onClick={() => setAnswer(char)} 
+                                    className={`w-12 h-12 rounded-xl font-black text-2xl transition-all ${answer === char ? 'bg-amber-400 text-white shadow-md scale-110' : 'bg-white text-slate-500 border border-slate-200 hover:border-amber-300 hover:bg-amber-50'}`}>
+                                    {char}
+                                </button>
+                            ))}
+                        </div>
+                        <p className="text-xs font-bold text-amber-500 mt-4">💡 팁: 5x5 칸에 꽉 차게, 굵직하게 그리면 탐정들이 더 쉽게 맞힐 수 있어요!</p>
+                    </div>
+                )}
+            </div>
+
+            <div className={`transition-opacity duration-500 ${answer ? 'opacity-100' : 'opacity-40'}`}>
+                <p className="font-black text-blue-600 mb-4">{answer ? `선택한 '${answer}' 모양을 아래 격자에 예쁘게 그려주세요!` : '먼저 모양을 선택해야 그릴 수 있어요.'}</p>
+                <div className="grid grid-cols-5 gap-3 p-6 bg-slate-50 rounded-[3rem] inline-grid mb-10 border-4 border-slate-100 shadow-inner mx-auto">
+                    {state.imageData.map((v, i) => (
+                        <button key={i} onClick={() => toggle(i)} className={`w-12 h-12 md:w-16 md:h-16 rounded-2xl border-2 transition-all duration-200 ${v === 1 ? 'bg-slate-800 border-slate-900 shadow-lg scale-105' : 'bg-white border-slate-200'}`} />
+                    ))}
+                </div>
+                <button onClick={submit} className={`w-full max-w-sm mx-auto py-5 rounded-[2rem] font-black text-2xl flex items-center justify-center gap-3 shadow-xl transition-all ${answer ? 'bg-blue-600 text-white hover:bg-blue-700 active:scale-95' : 'bg-slate-300 text-slate-500 cursor-not-allowed'}`}>
+                    <LucideSend size={28} /> 탐정들에게 출제하기
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function DetectiveScanningView({ role, state, onUpdate }) {
+    const [pos, setPos] = useState({ x: 0, y: 0 });
+    const isH = role === '가로 탐정';
+    const f = isH ? FILTERS.horizontal : FILTERS.vertical;
+    const field = isH ? 'horizScores' : 'vertScores';
+    const colorClass = isH ? 'text-emerald-600' : 'text-rose-600';
+    const borderClass = isH ? 'border-emerald-500' : 'border-rose-500';
+    const bgClass = isH ? 'bg-emerald-500' : 'bg-rose-500';
+    const isDone = isH ? state.horizDone : state.vertDone;
+
+    const scan = () => {
+        if (isDone) return;
+        let s = 0;
+        for (let r=0; r<3; r++) for (let c=0; c<3; c++) {
+            const idx = (pos.y + r)*5 + (pos.x + c);
+            if (state.imageData[idx] === 1 && f[r][c] === 1) s++;
+        }
+        const newS = [...state[field]]; newS[pos.y*3+pos.x] = s;
+        onUpdate({ [field]: newS });
+    };
+
+    const finalize = () => {
+        const updates = isH ? { horizDone: true } : { vertDone: true };
+        const otherDone = isH ? state.vertDone : state.horizDone;
+        if (otherDone) {
+            updates.stage = STAGES.GUESSING;
+        }
+        onUpdate(updates);
+    };
+
+    return (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
+            <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-sm flex flex-col items-center">
+                <h3 className={`font-black mb-8 text-2xl flex items-center gap-2 ${colorClass}`}><LucideSearch size={28} /> 특징 돋보기 (CNN 필터)</h3>
+                
+                <div className="relative inline-block bg-slate-100 p-5 rounded-[2.5rem] mb-10 border-8 border-slate-50 shadow-inner">
+                    <div className="grid grid-cols-5 gap-2">
+                        {state.imageData.map((v, i) => <div key={i} className={`w-12 h-12 md:w-16 md:h-16 border rounded-xl flex items-center justify-center font-black text-xl shadow-sm ${v === 1 ? 'bg-slate-800 text-white' : 'bg-white text-slate-100'}`}>{v}</div>)}
+                    </div>
+                    <div className={`absolute border-[6px] ${borderClass} pointer-events-none transition-all duration-300 rounded-[1.5rem] flex flex-wrap p-1 shadow-2xl bg-white/20`} style={{ width: (16*4+8)*3+8, height: (16*4+8)*3+8, left: 20+pos.x*(16*4+8), top: 20+pos.y*(16*4+8) }}>
+                        {f.flat().map((fv, fi) => (
+                            <div key={fi} className={`w-12 h-12 md:w-16 md:h-16 flex items-center justify-center rounded-lg ${fv === 1 ? `${bgClass}/60 text-white` : 'border border-transparent'}`}>
+                                {fv === 1 && <LucideCheck size={24} className="font-black drop-shadow-md" />}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+
+                <div className="bg-slate-50 p-6 rounded-3xl w-full max-w-sm">
+                    <div className="grid grid-cols-3 gap-3 w-48 mx-auto">
+                        <div/><button onClick={() => !isDone && setPos(p => ({...p, y:Math.max(0,p.y-1)}))} disabled={isDone} className={`bg-white border-b-4 border-slate-200 p-4 rounded-2xl font-black text-slate-600 hover:bg-slate-100 transition-all flex justify-center ${isDone ? 'opacity-50 cursor-not-allowed border-b-0 translate-y-1' : 'active:translate-y-1 active:border-b-0'}`}><LucideChevronUp/></button><div/>
+                        <button onClick={() => !isDone && setPos(p => ({...p, x:Math.max(0,p.x-1)}))} disabled={isDone} className={`bg-white border-b-4 border-slate-200 p-4 rounded-2xl font-black text-slate-600 hover:bg-slate-100 transition-all flex justify-center ${isDone ? 'opacity-50 cursor-not-allowed border-b-0 translate-y-1' : 'active:translate-y-1 active:border-b-0'}`}><LucideChevronLeft/></button>
+                        <button onClick={scan} disabled={isDone} className={`${bgClass} border-b-4 border-slate-800/20 text-white font-black text-lg rounded-2xl transition-all flex items-center justify-center shadow-lg ${isDone ? 'opacity-50 cursor-not-allowed border-b-0 translate-y-1' : 'active:translate-y-1 active:border-b-0'}`}>SCAN</button>
+                        <button onClick={() => !isDone && setPos(p => ({...p, x:Math.min(2,p.x+1)}))} disabled={isDone} className={`bg-white border-b-4 border-slate-200 p-4 rounded-2xl font-black text-slate-600 hover:bg-slate-100 transition-all flex justify-center ${isDone ? 'opacity-50 cursor-not-allowed border-b-0 translate-y-1' : 'active:translate-y-1 active:border-b-0'}`}><LucideChevronRight/></button>
+                        <div/><button onClick={() => !isDone && setPos(p => ({...p, y:Math.min(2,p.y+1)}))} disabled={isDone} className={`bg-white border-b-4 border-slate-200 p-4 rounded-2xl font-black text-slate-600 hover:bg-slate-100 transition-all flex justify-center ${isDone ? 'opacity-50 cursor-not-allowed border-b-0 translate-y-1' : 'active:translate-y-1 active:border-b-0'}`}><LucideChevronDown/></button><div/>
+                    </div>
+                </div>
+            </div>
+
+            <div className="bg-white p-8 md:p-10 rounded-[3rem] shadow-sm flex flex-col items-center justify-between">
+                <div className="w-full text-center">
+                    <h3 className="font-black mb-2 text-2xl">수사 보고서</h3>
+                    <p className="text-slate-400 font-bold text-sm mb-10">스캔 버튼을 눌러 점수표를 완성하세요.</p>
+                    <div className="grid grid-cols-3 gap-4 p-6 bg-slate-50 rounded-[2.5rem] border-4 border-slate-100 w-fit mx-auto mb-8">
+                        {state[field].map((s, i) => (
+                            <div key={i} className={`w-16 h-16 md:w-24 md:h-24 flex items-center justify-center font-black text-4xl rounded-2xl transition-all duration-300 ${s>0 ? `${bgClass} text-white shadow-xl scale-110 border-4 border-slate-800/10` : 'bg-white border-2 border-slate-200 text-slate-200'}`}>{s}</div>
+                        ))}
+                    </div>
+                </div>
+                {isDone ? (
+                    <div className="w-full bg-slate-100 text-slate-500 py-6 rounded-[2rem] font-black text-xl border-2 border-slate-200 mt-4 flex items-center justify-center gap-3">
+                        <LucideRefreshCcw className="animate-spin" /> 파트너 탐정을 기다리는 중...
+                    </div>
+                ) : (
+                    <button onClick={finalize} className="w-full bg-slate-800 text-white py-6 rounded-[2rem] font-black text-2xl hover:bg-black transition-colors shadow-2xl mt-4">보고 완료 및 전송</button>
+                )}
+            </div>
+        </div>
+    );
+}
+
+function AnswererGuessView({ state, onUpdate }) {
+    const [guess, setGuess] = useState('');
+    
+    const submit = () => {
+        if(!guess.trim()) return alert("최종 정답을 1글자로 입력해주세요!");
+        
+        const isCorrect = guess.trim().toLowerCase() === (state.intendedAnswer || "").trim().toLowerCase();
+        const newScore = (state.score || 0) + (isCorrect ? 10 : 0); 
+        
+        onUpdate({ 
+            stage: STAGES.FINISHED, 
+            finalGuess: guess.trim(),
+            score: newScore,
+            isCorrect: isCorrect
+        });
+    };
+
+    return (
+        <div className="space-y-8 h-full flex flex-col">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 text-center flex-1">
+                <div className="bg-white p-8 rounded-[3rem] shadow-sm border-t-[12px] border-emerald-500 flex flex-col items-center justify-center">
+                    <div className="flex items-center gap-2 text-emerald-600 mb-6"><LucideFileText size={24}/> <h4 className="font-black text-xl">가로 탐정 보고서</h4></div>
+                    <div className="grid grid-cols-3 gap-3 bg-slate-50 p-6 rounded-[2.5rem]"> {state.horizScores.map((s,i)=><div key={i} className={`w-16 h-16 flex items-center justify-center rounded-2xl font-black text-3xl transition-all ${s>0?'bg-emerald-500 text-white shadow-lg':'bg-white border-2 border-slate-200 text-slate-200'}`}>{s}</div>)} </div>
+                </div>
+                <div className="bg-white p-8 rounded-[3rem] shadow-sm border-t-[12px] border-rose-500 flex flex-col items-center justify-center">
+                    <div className="flex items-center gap-2 text-rose-600 mb-6"><LucideFileText size={24}/> <h4 className="font-black text-xl">세로 탐정 보고서</h4></div>
+                    <div className="grid grid-cols-3 gap-3 bg-slate-50 p-6 rounded-[2.5rem]"> {state.vertScores.map((s,i)=><div key={i} className={`w-16 h-16 flex items-center justify-center rounded-2xl font-black text-3xl transition-all ${s>0?'bg-rose-500 text-white shadow-lg':'bg-white border-2 border-slate-200 text-slate-200'}`}>{s}</div>)} </div>
+                </div>
+            </div>
+            <div className="bg-white p-12 rounded-[4rem] shadow-2xl border-4 border-amber-400 text-center relative overflow-hidden">
+                <div className="absolute -top-10 -right-10 text-amber-100 opacity-50"><LucideBrainCircuit size={200}/></div>
+                
+                <div className="inline-block bg-amber-100 text-amber-600 font-black px-6 py-2 rounded-full mb-6 relative z-10 text-lg border border-amber-300">
+                    💡 그림 대장의 카테고리 힌트 : {state.category}
+                </div>
+                
+                <h3 className="text-4xl font-black mb-4 text-amber-600 relative z-10">🕵️ 범인(모양) 검거하기</h3>
+                <p className="font-bold text-slate-500 mb-8 relative z-10">어떤 모양인지 <span className="text-rose-500">단 한 글자</span>로 정확히 입력하세요! (예: ㄱ, L, 7)</p>
+                <div className="max-w-lg mx-auto relative z-10 flex gap-4">
+                    <input type="text" value={guess} onChange={e=>setGuess(e.target.value)} maxLength="1" className="flex-1 p-6 border-4 border-slate-100 rounded-3xl text-center text-4xl font-black outline-none focus:border-amber-400 shadow-inner uppercase" placeholder="정답 1글자 입력" />
+                    <button onClick={submit} className="bg-amber-500 text-white px-10 rounded-3xl font-black text-2xl shadow-xl hover:bg-amber-600 transition-colors">발표!</button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+function ResultView({ state, onNext }) {
+    const isCorrect = state.isCorrect;
+
+    return (
+        <div className="bg-white p-12 md:p-20 rounded-[4rem] text-center shadow-xl border-4 border-indigo-100">
+            <h2 className={`text-5xl md:text-6xl font-black mb-12 tracking-tighter ${isCorrect ? 'text-emerald-500' : 'text-rose-500'}`}>
+                {isCorrect ? "🎉 정답입니다! (+10점)" : "😢 아쉽게도 틀렸습니다..."}
+            </h2>
+            
+            <div className="flex flex-col md:flex-row justify-center gap-10 md:gap-24 mb-16 items-center">
+                <div className="bg-slate-50 p-10 rounded-[3rem] border-4 border-slate-100 shadow-inner">
+                    <p className="text-slate-400 font-bold mb-6 uppercase tracking-widest text-sm">원본 데이터</p>
+                    <div className="grid grid-cols-5 gap-2 inline-grid"> {state.imageData.map((v,i)=><div key={i} className={`w-10 h-10 md:w-12 md:h-12 rounded-xl shadow-sm ${v===1?'bg-slate-800':'bg-white'}`} />)} </div>
+                    <p className="mt-6 font-black text-xl text-slate-700">진짜 정답: <span className="text-blue-600">{state.intendedAnswer}</span></p>
+                </div>
+                <div className="text-center">
+                    <p className="text-slate-400 font-bold mb-4 uppercase tracking-widest text-sm">정답 대장의 추리</p>
+                    <div className={`px-12 py-8 rounded-[3rem] border-4 ${isCorrect ? 'bg-emerald-50 border-emerald-200 text-emerald-600' : 'bg-rose-50 border-rose-200 text-rose-600'}`}>
+                        <h3 className="text-6xl font-black">{state.finalGuess || '?'}</h3>
+                    </div>
+                </div>
+            </div>
+            <button onClick={onNext} className="bg-indigo-600 text-white px-16 py-6 rounded-[2.5rem] font-black text-3xl flex items-center justify-center gap-4 mx-auto shadow-xl hover:bg-indigo-700 transition-all active:scale-95"><LucideRefreshCcw size={32} /> 다음 라운드 시작!</button>
+            <p className="mt-8 text-slate-400 font-bold text-lg">※ 다음 판부터는 역할이 <span className="text-indigo-600">완전 랜덤</span>으로 바뀝니다!</p>
+        </div>
+    );
+}
+
+function WaitingView({ text, role }) {
+    return (
+        <div className="h-full flex flex-col items-center justify-center p-12 text-center">
+            <div className="w-32 h-32 bg-white rounded-[2.5rem] shadow-xl flex items-center justify-center mb-10"><LucideRefreshCcw className="animate-spin text-indigo-200" size={64} /></div>
+            <p className="text-3xl font-black text-slate-400 italic mb-4 tracking-tight">{text}</p>
+            <div className="bg-indigo-50 px-6 py-2 rounded-full text-sm font-black text-indigo-400 uppercase tracking-widest">{role} 단계입니다.</div>
+        </div>
+    );
+}
